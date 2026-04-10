@@ -6,7 +6,9 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 import org.emoflon.gips.eclipse.trace.resolver.ResolveElement2Id;
 
@@ -48,16 +50,20 @@ public class TraceMap<S, T> implements Serializable {
 		final var compressedMapping = new TraceMap<S, T>();
 		final var exitPoints = new HashSet<T>();
 
-		for (final var entryPoint : map1.getAllSources()) {
-			exitPoints.clear();
+		synchronized (map1) {
+			synchronized (map2) {
+				for (final var entryPoint : map1.getAllSources()) {
+					exitPoints.clear();
 
-			final var intermediates = map1.getTargets(entryPoint);
-			for (final var intermediate : intermediates) {
-				final var result = map2.getTargets(intermediate);
-				exitPoints.addAll(result);
+					final var intermediates = map1.getTargets(entryPoint);
+					for (final var intermediate : intermediates) {
+						final var result = map2.getTargets(intermediate);
+						exitPoints.addAll(result);
+					}
+
+					compressedMapping.mapOneToMany(entryPoint, exitPoints);
+				}
 			}
-
-			compressedMapping.mapOneToMany(entryPoint, exitPoints);
 		}
 
 		return compressedMapping;
@@ -76,25 +82,29 @@ public class TraceMap<S, T> implements Serializable {
 		final var merged = new TraceMap<S, T>();
 		final var exitPoints = new HashSet<T>();
 
-		for (var entryPoint : map1.getAllSources()) {
-			exitPoints.clear();
+		synchronized (map1) {
+			synchronized (map2) {
+				for (var entryPoint : map1.getAllSources()) {
+					exitPoints.clear();
 
-			var exitPointsMap1 = map1.getTargets(entryPoint);
-			exitPoints.addAll(exitPointsMap1);
+					var exitPointsMap1 = map1.getTargets(entryPoint);
+					exitPoints.addAll(exitPointsMap1);
 
-			var exitPointsMap2 = map2.getTargets(entryPoint);
-			exitPoints.addAll(exitPointsMap2);
+					var exitPointsMap2 = map2.getTargets(entryPoint);
+					exitPoints.addAll(exitPointsMap2);
 
-			merged.mapOneToMany(entryPoint, exitPoints);
-		}
+					merged.mapOneToMany(entryPoint, exitPoints);
+				}
 
-		for (var entryPoint : map2.getAllSources()) {
-			if (map1.hasSource(entryPoint)) {
-				continue;
+				for (var entryPoint : map2.getAllSources()) {
+					if (map1.hasSource(entryPoint)) {
+						continue;
+					}
+
+					var exitPoints2 = map2.getTargets(entryPoint);
+					merged.mapOneToMany(entryPoint, exitPoints2);
+				}
 			}
-
-			var exitPoints2 = map2.getTargets(entryPoint);
-			merged.mapOneToMany(entryPoint, exitPoints2);
 		}
 
 		return merged;
@@ -105,30 +115,32 @@ public class TraceMap<S, T> implements Serializable {
 
 		final var newMap = new TraceMap<String, String>();
 
-		for (final var source : map.getAllSources()) {
-			final String srcId = srcResolver.resolve(source);
-			if (srcId == null) {
-				throw new NullPointerException(); // TODO
-			}
-
-			for (final var target : map.getTargets(source)) {
-				final String dstId = dstResolver.resolve(target);
-				if (dstId == null) {
+		synchronized (map) {
+			for (final var source : map.getAllSources()) {
+				final String srcId = srcResolver.resolve(source);
+				if (srcId == null) {
 					throw new NullPointerException(); // TODO
 				}
-				newMap.map(srcId, dstId);
+
+				for (final var target : map.getTargets(source)) {
+					final String dstId = dstResolver.resolve(target);
+					if (dstId == null) {
+						throw new NullPointerException(); // TODO
+					}
+					newMap.map(srcId, dstId);
+				}
 			}
 		}
 
 		return newMap;
 	}
 
-	private final Map<S, Set<T>> forward = new HashMap<>();
-	private final Map<T, Set<S>> backward = new HashMap<>();
+	private final Map<S, Set<T>> forward = new ConcurrentHashMap<>();
+	private final Map<T, Set<S>> backward = new ConcurrentHashMap<>();
 	private S sourceDefault;
 
 	public void setDefaultSource(final S source) {
-		this.sourceDefault = source;
+		this.sourceDefault = Objects.requireNonNull(source, "source");
 	}
 
 	public void clearDefaultSource() {
@@ -141,9 +153,11 @@ public class TraceMap<S, T> implements Serializable {
 	 * @param source start element of a transformation
 	 * @param target end element of a transformation
 	 */
-	public void map(final S source, final T target) {
-		forward.computeIfAbsent(source, key -> new HashSet<T>()).add(target);
-		backward.computeIfAbsent(target, key -> new HashSet<S>()).add(source);
+	public synchronized void map(final S source, final T target) {
+		forward.computeIfAbsent(Objects.requireNonNull(source, "source"), key -> ConcurrentHashMap.newKeySet())
+				.add(target);
+		backward.computeIfAbsent(Objects.requireNonNull(target, "target"), key -> ConcurrentHashMap.newKeySet())
+				.add(source);
 	}
 
 	/**
@@ -173,13 +187,11 @@ public class TraceMap<S, T> implements Serializable {
 	}
 
 	public void mapWithDefaultSource(T target) {
-		if (this.sourceDefault == null) {
-			throw new IllegalStateException("Default source not set");
-		}
-		map(this.sourceDefault, target);
+		var source = Objects.requireNonNull(this.sourceDefault, "Default source not set");
+		map(source, target);
 	}
 
-	public void removeMapping(S source, T target) {
+	public synchronized void removeMapping(S source, T target) {
 		var forwardMapping = forward.get(source);
 		if (forwardMapping != null) {
 			forwardMapping.remove(target);
@@ -191,6 +203,12 @@ public class TraceMap<S, T> implements Serializable {
 		}
 	}
 
+	/**
+	 * Returns an unmodifiable view of sources for the given target. Any changes to
+	 * this map may be reflected in the returned collection.
+	 * 
+	 * @return
+	 */
 	public Set<S> getSources(final T target) {
 		final Set<S> sources = backward.get(target);
 		if (sources == null) {
@@ -199,6 +217,12 @@ public class TraceMap<S, T> implements Serializable {
 		return Collections.unmodifiableSet(sources);
 	}
 
+	/**
+	 * Returns an unmodifiable view of targets for the given source. Any changes to
+	 * this map may be reflected in the returned collection.
+	 * 
+	 * @return
+	 */
 	public Set<T> getTargets(final S source) {
 		final Set<T> targets = forward.get(source);
 		if (targets == null) {
@@ -215,22 +239,34 @@ public class TraceMap<S, T> implements Serializable {
 		return getSources(target).isEmpty();
 	}
 
+	/**
+	 * Returns an unmodifiable view of all sources within this map. Any changes to
+	 * this map will be reflected directly in the returned collection.
+	 * 
+	 * @return
+	 */
 	public Set<S> getAllSources() {
 		return Collections.unmodifiableSet(forward.keySet());
 	}
 
+	/**
+	 * Returns an unmodifiable view of all targets within this map. Any changes to
+	 * this map will be reflected directly in the returned collection.
+	 * 
+	 * @return
+	 */
 	public Set<T> getAllTargets() {
 		return Collections.unmodifiableSet(backward.keySet());
 	}
 
-	public void clear() {
+	public synchronized void clear() {
 		forward.clear();
 		backward.clear();
-		sourceDefault = null;
+		clearDefaultSource();
 	}
 
 	@Override
-	public TraceMap<S, T> clone() {
+	public synchronized TraceMap<S, T> clone() {
 		final var copy = new TraceMap<S, T>();
 		for (var key : forward.keySet()) {
 			copy.mapOneToMany(key, forward.get(key));

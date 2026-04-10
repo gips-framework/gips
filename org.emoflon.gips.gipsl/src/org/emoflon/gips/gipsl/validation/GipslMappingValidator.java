@@ -12,6 +12,7 @@ import org.emoflon.gips.gipsl.gipsl.GipslPackage;
 import org.emoflon.gips.gipsl.gipsl.impl.EditorGTFileImpl;
 import org.emoflon.gips.gipsl.scoping.GipslScopeContextUtil;
 import org.emoflon.ibex.gt.editor.gT.EditorPattern;
+import org.emoflon.ibex.gt.editor.gT.EditorPatternType;
 import org.emoflon.ibex.gt.editor.utils.GTEditorPatternUtils;
 
 public class GipslMappingValidator {
@@ -38,6 +39,7 @@ public class GipslMappingValidator {
 		checkRuleNotAbstract(mapping);
 		checkAtMostOneMappingPerRule(mapping);
 		checkMappingUnused(mapping);
+		checkMappingValueInUse(mapping);
 	}
 
 	/**
@@ -90,15 +92,15 @@ public class GipslMappingValidator {
 		}
 
 		long count = GipslScopeContextUtil.getAllEditorPatterns(mapping).stream()
-				.filter(p -> p != null && p.getName() != null).filter(p -> p.getName().equals(mapping.getName()))
-				.count();
+				.filter(p -> p != null && p.getName() != null)
+				.filter(p -> p.getName().toLowerCase().equals(mapping.getName().toLowerCase())).count();
 
 		count += GipslScopeContextUtil.getClasses(mapping).stream()
-				.filter(cls -> cls.getName().equals(mapping.getName())).count();
+				.filter(cls -> cls.getName().toLowerCase().equals(mapping.getName().toLowerCase())).count();
 
 		EditorGTFile editorFile = GTEditorPatternUtils.getContainer(mapping, EditorGTFileImpl.class);
 		count += editorFile.getMappings().stream().filter(m -> m != null && m.getName() != null)
-				.filter(m -> m.getName().equals(mapping.getName())).count();
+				.filter(m -> m.getName().toLowerCase().equals(mapping.getName().toLowerCase())).count();
 
 		if (count != 1) {
 			GipslValidator.err( //
@@ -138,18 +140,25 @@ public class GipslMappingValidator {
 			return;
 		}
 
-		final EditorGTFile container = (EditorGTFile) mapping.eContainer();
-		final Set<EditorPattern> foundPatterns = new HashSet<>();
+		// Only check if context of the given mapping is a rule (and not a pattern)
+		if (mapping.getPattern().getType() == EditorPatternType.PATTERN) {
+			return;
+		}
 
-		container.getMappings().stream().filter(m -> m.getPattern() != null).forEach(m -> {
-			final boolean alreadyUsed = !foundPatterns.add(m.getPattern());
-			if (alreadyUsed) {
-				GipslValidator.err( //
-						String.format(GipslValidatorUtil.RULE_HAS_MULTIPLE_MAPPINGS, m.getPattern().getName()), //
-						GipslPackage.Literals.GIPS_MAPPING__PATTERN //
-				);
-			}
-		});
+		final EditorGTFile container = (EditorGTFile) mapping.eContainer();
+		final Set<EditorPattern> foundRules = new HashSet<>();
+
+		container.getMappings().stream()
+				.filter(m -> m.getPattern() != null && m.getPattern().getType() == EditorPatternType.RULE)
+				.forEach(m -> {
+					final boolean alreadyUsed = !foundRules.add(m.getPattern());
+					if (alreadyUsed) {
+						GipslValidator.err( //
+								String.format(GipslValidatorUtil.RULE_HAS_MULTIPLE_MAPPINGS, m.getPattern().getName()), //
+								GipslPackage.Literals.GIPS_MAPPING__PATTERN //
+						);
+					}
+				});
 	}
 
 	/**
@@ -185,6 +194,29 @@ public class GipslMappingValidator {
 		}
 	}
 
+	/**
+	 * Displays a warning to inform the user that no binary variables will be
+	 * generated for the given mapping.This occurs if the 'value' attribute of the
+	 * mapping is not evaluated.
+	 * 
+	 * @param mapping
+	 */
+	public static void checkMappingValueInUse(final GipsMapping mapping) {
+		if (!GipslScopeContextUtil.isMappingValueReferenced(mapping)) {
+			GipslValidator.warn( //
+					String.format(GipslValidatorUtil.MAPPING_VALUE_NOT_USED, mapping.getName()), //
+					GipslPackage.Literals.GIPS_MAPPING__NAME);
+		}
+	}
+
+	public static void checkMappingVariableInUse(final GipsMappingVariable mappingVariable) {
+		if (!GipslScopeContextUtil.isVariableReferenced(mappingVariable)) {
+			GipslValidator.warn( //
+					String.format(GipslValidatorUtil.MAPPING_VARIABLE_NOT_USED, mappingVariable.getName()), //
+					GipslPackage.Literals.GIPS_VARIABLE__NAME);
+		}
+	}
+
 	public static void checkMappingVariableNameUnique(final GipsMappingVariable mappingVariable) {
 		if (mappingVariable.getName() == null)
 			return;
@@ -195,13 +227,13 @@ public class GipslMappingValidator {
 
 		Optional<GipsMappingVariable> other = mapping.getVariables().stream()
 				.filter(var -> !var.equals(mappingVariable)).filter(var -> var.getName() != null)
-				.filter(var -> var.getName().equals(mappingVariable.getName())).findAny();
+				.filter(var -> var.getName().toLowerCase().equals(mappingVariable.getName().toLowerCase())).findAny();
 
 		if (other.isPresent()) {
 			GipslValidator.err( //
 					String.format(GipslValidatorUtil.MAPPING_VARIABLE_NAME_MULTIPLE_DECLARATIONS_MESSAGE,
 							mappingVariable.getName()), //
-					GipslPackage.Literals.GIPS_MAPPING_VARIABLE__NAME, //
+					GipslPackage.Literals.GIPS_VARIABLE__NAME, //
 					GipslValidator.NAME_EXPECT_UNIQUE //
 			);
 		}

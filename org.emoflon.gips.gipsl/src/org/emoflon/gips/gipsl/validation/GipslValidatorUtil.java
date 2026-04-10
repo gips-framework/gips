@@ -99,17 +99,27 @@ public class GipslValidatorUtil {
 	public static final String OBJECTIVE_DOES_NOT_CONTAIN_LOCAL_OBJECTIVE_MESSAGE = "Global objective does not contain any reference to a local objective.";
 	public static final String OBJECTIVE_EVAL_NOT_NUMBER_MESSAGE = "Objective does not evaluate to an integer, double or variable.";
 
-	public static final String MAPPING_NAME_MULTIPLE_DECLARATIONS_MESSAGE = "Mapping, Pattern, Rule or Type '%s' must not be declared '%s'.";
+	public static final String MAPPING_NAME_MULTIPLE_DECLARATIONS_MESSAGE = "Mapping, Pattern, Rule or Type '%s' must not be declared '%s' (case insensitive).";
 	public static final String MAPPING_NAME_FORBIDDEN_MESSAGE = "Mappings cannot be be named '%s'. Use a different name.";
 	public static final String MAPPING_NAME_CONTAINS_UNDERSCORES_MESSAGE = "Mapping name '%s' contains underscores. Use camelCase instead.";
 	public static final String MAPPING_NAME_STARTS_WITH_LOWER_CASE_MESSAGE = "Mapping '%s' should start with a lower case character.";
 	public static final String MAPPING_W_O_CONSTRAINTS_MESSAGE = "Mapping '%s' is not subject to any constraints.";
 	public static final String MAPPING_W_O_CONSTRAINTS_AND_OBJECTIVE_MESSAGE = "Mapping '%s' is not subject to any constraints and not part of any objective function.";
-	public static final String MAPPING_VARIABLE_NAME_MULTIPLE_DECLARATIONS_MESSAGE = "Mapping variable name '%s' must not be declared more than once.";
+	public static final String MAPPING_VARIABLE_NAME_MULTIPLE_DECLARATIONS_MESSAGE = "Mapping variable name '%s' must not be declared more than once (case insensitive).";
+	public static final String MAPPING_VARIABLE_NOT_USED = "Mapping variable '%s' is never used. No (M)ILP variable will be created for this variable.";
+	public static final String MAPPING_VALUE_NOT_USED = "Mapping '%s' .value is never used. No (M)ILP variable will be created for this mapping.";
+	public static final String MAPPING_VALUE_MISUSE = "'value' can only be used with mappings";
 	public static final String RULE_HAS_MULTIPLE_MAPPINGS = "Multiple mappings on rule: <'%s'>";
 	public static final String RULE_IS_ABSTRACT = "Mapping '%s' uses an abstract rule which is not possible.";
 
-	public static final String FUNCTION_NAME_MULTIPLE_DECLARATIONS_MESSAGE = "Objective '%s' must not be declared '%s'";
+	public static final String TYPE_EXTENSION_ALREADY_DECLARED = "Type '%s' already declared '%s'.";
+	public static final String TYPE_EXTENSION_VARIABLE_ALREADY_DECLARED = "Variable '%s' is already declared in extension '%s' (case insensitive).";
+	public static final String TYPE_EXTENSION_VARIABLE_ATTRIBUTE_INVALID = "Variable is bound to an invalid attribute.";
+	public static final String TYPE_EXTENSION_VARIABLE_ATTRIBUTE_TYPE_MISSMATCH = "Variable does not match bound attribute type.";
+	public static final String TYPE_EXTENSION_VARIABLE_ATTRIBUTE_ALREADY_BOUND = "Variable '%s' in extension '%s' is already bound to this attribute.";
+	public static final String TYPE_EXTENSION_VARIABLE_NOT_USED = "Variable '%s' is never used. No (M)ILP variable will be created for this variable.";
+
+	public static final String FUNCTION_NAME_MULTIPLE_DECLARATIONS_MESSAGE = "Linear function '%s' must not be declared '%s' (case insensitive)";
 	public static final String FUNCTION_NAME_FORBIDDEN_MESSAGE = "Objectives cannot be be named '%s'. Use a different name.";
 	public static final String FUNCTION_NAME_CONTAINS_UNDERSCORES_MESSAGE = "Objective name '%s' contains underscores. Use camelCase instead.";
 	public static final String FUNCTION_NAME_STARTS_WITH_LOWER_CASE_MESSAGE = "Objective '%s' should start with a lower case character.";
@@ -138,7 +148,7 @@ public class GipslValidatorUtil {
 	public static final String ARITH_EXPR_NONLINEAR_ERROR_MESSAGE = "Combination of operands leads to non-linear expression.";
 	public static final String ARITH_EXPR_MISMATCH_ERROR_MESSAGE = "Operands cannot be combined since their types do not match.";
 	public static final String ARITH_EXPR_LFR_ERROR_MESSAGE = "Linear function references not allowed in set expressions and outside of the objective.";
-	public static final String ARITH_EXPR_VAR_REF_ERROR_MESSAGE = "Variable references can only be used in combination with a mapping context.";
+	public static final String ARITH_EXPR_VAR_REF_ERROR_MESSAGE = "Variable references can only be used in combination with a mapping or EClass context.";
 	public static final String ARITH_EXPR_VAR_USE_ERROR_MESSAGE = "Variable references can only be used \"plain\" arithmetic expressions or non-nested sum operations of sets.";
 
 	public static final String VALUE_EXPR_CONTAINS_ERRORS = "Value expression contains errors.";
@@ -147,13 +157,29 @@ public class GipslValidatorUtil {
 	public static final String TYPE_DOES_NOT_CONTAIN_NODES = "Objects of Types/Classes do not contain nodes.";
 	public static final String TYPE_CONTAINS_ATTRIBUTES = "Only objects of Types/Classes contain attributes.";
 
+	public static final String TYPE_SELECTION_INVALID_COLLECTION = "Type selection is only supported for type collections.";
+	public static final String TYPE_SELECTION_SAME_TYPE = "Collection is already of type '%s'. Type selection can be removed.";
+	public static final String TYPE_SELECTION_IS_SUPERTYPE = "'%s' is a supertype of '%s'. Type selection can be removed.";
+	public static final String TYPE_SELECTION_UNRELATED_TYPE = "Possible incompatible type selection. %s seems to be unrelated to %s.";
+
 	public static final String SET_EXPR_CONTAINS_ERRORS = "Set expression contains errors.";
 	public static final String SET_EXPR_CONTAINS_UNKNOWNS = "Set expression contains unknown/illegal expression types.";
 	public static final String SET_OPERATION_MISSING = "Set expressions must end on an operation that reduces a set to a scalar value such as a sum operation.";
 	public static final String SET_OPERATION_FAULTY = "Set operation does not seem to be correct and/or produce a proper set.";
 	public static final String SET_CONCAT_ERROR = "Only sets of values can be concatenated.";
 	public static final String SET_SORT_PREDICATE_RELATION_ERROR = "Sorting predicate must impose an order, which means == and != are invalid operators.";
-	public static final String SET_FILTER_ERROR = "Filter operations on sets must be performed with Boolean predicates. Furthermore, these must be constant at MILP compilation time, which means that they must never contain variable references.";
+	public static final String SET_FILTER_ERROR = "Filter operations on sets must be performed with Boolean predicates. Furthermore, these must be constant at (M)ILP compilation time, which means that they must never contain variable references.";
+
+	public static final String ATTRIBUTE_ACCESS_ON_MANY = "Unable to directly access variables or attributes on set '%s'. Use a set expressions '->'.";
+
+	public static final String SET_JOIN_ALL_MISMATCH_PATTERN = "Set and Context do not share same Pattern or Rule, use join() instead.";
+	public static final String SET_JOIN_ALL_INVALID_TYPES = "Set and context type do not match, use join().";
+	public static final String SET_JOIN_ALL_MISSING_PATTERN = "%s has no Pattern or Rule.";
+	public static final String SET_JOIN_UNRELATED_TYPE = "Incompatible operand types. %s seems to be unrelated to %s.";
+	public static final String SET_JOIN_EMPTY = "Join is empty.";
+	public static final String SET_JOIN_MISUSE_SINGLE = "Single node comparison is only applicable for Context or Set type EClass. Use '(set node, context node)' to specify which nodes to compare.";
+	public static final String SET_JOIN_LEFT_NODE_REF_ERROR = "Node reference was not found in Set";
+	public static final String SET_JOIN_RIGHT_NODE_REF_ERROR = "Node reference was not found in Context";
 
 	public static Set<GipsMapping> extractMappings(final GipsBooleanExpression expression) {
 		Set<GipsMapping> mappings = new HashSet<>();

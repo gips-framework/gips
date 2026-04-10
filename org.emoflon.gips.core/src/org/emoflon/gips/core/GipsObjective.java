@@ -6,6 +6,7 @@ import java.util.List;
 import org.emoflon.gips.core.milp.model.Constant;
 import org.emoflon.gips.core.milp.model.NestedLinearFunction;
 import org.emoflon.gips.core.milp.model.WeightedLinearFunction;
+import org.emoflon.gips.core.util.StreamUtils;
 import org.emoflon.gips.intermediate.GipsIntermediate.Objective;
 
 public abstract class GipsObjective {
@@ -24,10 +25,16 @@ public abstract class GipsObjective {
 		initLocalObjectives();
 	}
 
-	public void buildObjectiveFunction() {
+	/**
+	 * Builds the objective function. If the parameter `parallel` is true, the
+	 * process may run in parallel.
+	 * 
+	 * @param parallel If true, the process may run in parallel.
+	 */
+	public void buildObjectiveFunction(final boolean parallel) {
 		weightedFunctions = new LinkedList<>();
 		constantTerms = new LinkedList<>();
-		buildLocalObjectives();
+		buildLocalObjectives(parallel);
 		buildTerms();
 		milpObjective = new NestedLinearFunction(weightedFunctions, constantTerms, objective.getGoal());
 	}
@@ -40,10 +47,15 @@ public abstract class GipsObjective {
 		return milpObjective;
 	}
 
-	protected void buildLocalObjectives() {
-		// TODO: stream() -> parallelStream() once GIPS is based on the new shiny GT
-		// language
-		engine.getLinearFunctions().values().stream().forEach(fn -> fn.buildLinearFunction());
+	/**
+	 * Builds all local objectives. If the parameter `parallel` is true, the process
+	 * may run in parallel.
+	 * 
+	 * @param parallel If true, the process may run in parallel.
+	 */
+	protected void buildLocalObjectives(final boolean parallel) {
+		StreamUtils.toStream(engine.getLinearFunctions().values(), parallel)
+				.forEach(fn -> fn.buildLinearFunction(parallel));
 	}
 
 	protected abstract void initLocalObjectives();

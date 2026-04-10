@@ -21,6 +21,8 @@ import org.emoflon.gips.core.GipsMapping;
 import org.emoflon.gips.core.GipsMappingConstraint;
 import org.emoflon.gips.core.GipsObjective;
 import org.emoflon.gips.core.GipsTypeConstraint;
+import org.emoflon.gips.core.GipsTypeExtender;
+import org.emoflon.gips.core.GipsTypeExtension;
 import org.emoflon.gips.core.gt.GipsPatternConstraint;
 import org.emoflon.gips.core.gt.GipsRuleConstraint;
 import org.emoflon.gips.core.milp.model.BinaryVariable;
@@ -50,12 +52,12 @@ public class CplexSolver extends Solver {
 	private IloCplex cplex;
 
 	/**
-	 * Map to collect all ILP constraints (name -> collection of constraints).
+	 * Map to collect all (M)ILP constraints (name -> collection of constraints).
 	 */
 	private Map<String, Collection<Constraint>> constraints = new HashMap<>();
 
 	/**
-	 * Map to collect all ILP variables (name -> CPLEX numeric vars).
+	 * Map to collect all (M)ILP variables (name -> CPLEX numeric vars).
 	 */
 	private final Map<String, IloNumVar> vars = new HashMap<>();
 
@@ -201,6 +203,10 @@ public class CplexSolver extends Solver {
 			throw new RuntimeException(e);
 		}
 
+		if (config.getParameterPath() != null) {
+			System.out.println("CPLEX does not support the parameter path option. It will be ignored.");
+		}
+
 		// Reset local lookup data structure for the CPLEX constraints and variables in
 		// case this is not the first initialization.
 		constraints.clear();
@@ -313,18 +319,21 @@ public class CplexSolver extends Solver {
 			final GipsMapper<?> mapper = engine.getMapper(key);
 			// Iterate over all mappings of each mapper
 			for (final String k : mapper.getMappings().keySet()) {
-				// Get corresponding ILP variable name
+				// Get corresponding (M)ILP variable name
 				final GipsMapping mapping = mapper.getMapping(k);
 				final String varName = mapping.getName();
-				// Get value of the ILP variable and round it (to eliminate small deltas)
-				double result = 0;
-				try {
-					result = cplex.getValue(vars.get(varName));
-				} catch (final IloException ex) {
-					throw new RuntimeException(ex);
+
+				if (mapping.hasBinaryVariable()) {
+					// Get value of the (M)ILP variable and round it (to eliminate small deltas)
+					double result = 0;
+					try {
+						result = cplex.getValue(vars.get(varName));
+					} catch (final IloException ex) {
+						throw new RuntimeException(ex);
+					}
+					// Save result value in specific mapping
+					mapping.setValue((int) result);
 				}
-				// Save result value in specific mapping
-				mapping.setValue((int) result);
 
 				// Save all values of additional variables if any
 				if (mapping.hasAdditionalVariables()) {
@@ -339,6 +348,23 @@ public class CplexSolver extends Solver {
 				}
 			}
 		}
+
+		for (GipsTypeExtender<?, ?> extender : engine.getTypeExtensions().values()) {
+			for (GipsTypeExtension<?> extension : extender.getExtensions()) {
+				for (Entry<String, Variable<?>> variable : extension.getVariables().entrySet()) {
+					IloNumVar var = vars.get(variable.getValue().getName());
+					if (var != null) {
+						try {
+							double result = cplex.getValue(var);
+							extension.setVariableValue(variable.getKey(), result);
+						} catch (final IloException ex) {
+							throw new RuntimeException(ex);
+						}
+					}
+				}
+			}
+		}
+
 		// Solver reset will be handled by the GipsEngine afterward
 
 		if (engine.getEclipseIntegration().getConfig().isSolutionValuesSynchronizationEnabled()) {
@@ -355,7 +381,9 @@ public class CplexSolver extends Solver {
 
 	@Override
 	protected void translateMapping(final GipsMapping mapping) {
-		createBinVarIfNotExists(mapping.getName(), mapping.getLowerBound(), mapping.getUpperBound());
+		if (mapping.hasBinaryVariable())
+			createBinVarIfNotExists(mapping.getName(), mapping.getLowerBound(), mapping.getUpperBound());
+
 		if (mapping.hasAdditionalVariables()) {
 			createAdditionalVars(mapping.getAdditionalVariables().values());
 		}

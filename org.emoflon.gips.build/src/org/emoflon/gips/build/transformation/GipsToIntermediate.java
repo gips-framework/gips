@@ -11,7 +11,6 @@ import java.util.stream.Collectors;
 
 import org.eclipse.emf.ecore.EClass;
 import org.eclipse.emf.ecore.EObject;
-import org.emoflon.gips.build.transformation.helper.ArithmeticExpressionType;
 import org.emoflon.gips.build.transformation.helper.GipsTransformationData;
 import org.emoflon.gips.build.transformation.helper.GipsTransformationUtils;
 import org.emoflon.gips.build.transformation.transformer.ArithmeticExpressionTransformer;
@@ -27,9 +26,13 @@ import org.emoflon.gips.gipsl.gipsl.GipsLinearFunction;
 import org.emoflon.gips.gipsl.gipsl.GipsMapping;
 import org.emoflon.gips.gipsl.gipsl.GipsMappingVariable;
 import org.emoflon.gips.gipsl.gipsl.GipsObjective;
+import org.emoflon.gips.gipsl.gipsl.GipsTypeExtension;
+import org.emoflon.gips.gipsl.gipsl.GipsTypeExtensionVariable;
+import org.emoflon.gips.gipsl.scoping.GipslScopeContextUtil;
 import org.emoflon.gips.intermediate.GipsIntermediate.ArithmeticBinaryExpression;
 import org.emoflon.gips.intermediate.GipsIntermediate.ArithmeticBinaryOperator;
 import org.emoflon.gips.intermediate.GipsIntermediate.ArithmeticExpression;
+import org.emoflon.gips.intermediate.GipsIntermediate.BoundAttributeVariable;
 import org.emoflon.gips.intermediate.GipsIntermediate.Constant;
 import org.emoflon.gips.intermediate.GipsIntermediate.Constraint;
 import org.emoflon.gips.intermediate.GipsIntermediate.Context;
@@ -52,8 +55,10 @@ import org.emoflon.gips.intermediate.GipsIntermediate.RuleFunction;
 import org.emoflon.gips.intermediate.GipsIntermediate.RuleMapping;
 import org.emoflon.gips.intermediate.GipsIntermediate.RuleParameterVariable;
 import org.emoflon.gips.intermediate.GipsIntermediate.SolverConfig;
+import org.emoflon.gips.intermediate.GipsIntermediate.SolverPresolve;
 import org.emoflon.gips.intermediate.GipsIntermediate.SolverType;
 import org.emoflon.gips.intermediate.GipsIntermediate.TypeConstraint;
+import org.emoflon.gips.intermediate.GipsIntermediate.TypeExtension;
 import org.emoflon.gips.intermediate.GipsIntermediate.TypeFunction;
 import org.emoflon.gips.intermediate.GipsIntermediate.Variable;
 import org.emoflon.gips.intermediate.GipsIntermediate.VariableReference;
@@ -91,6 +96,7 @@ public class GipsToIntermediate {
 		// transform Gips components
 		transformConfig();
 		transformMappings();
+		transformTypeExtensions();
 		transformGlobalConstants();
 
 		transformConstraints();
@@ -195,11 +201,29 @@ public class GipsToIntermediate {
 			config.setMainFile(eConfig.getMainLoc().replace("\"", ""));
 
 		config.setEnableDebugOutput(eConfig.isEnableDebugOutput());
-		config.setEnablePresolve(eConfig.isEnablePresolve());
+
+		// Presolve configuration
+		switch (eConfig.getPresolve()) {
+		case NONE:
+			config.setPresolve(SolverPresolve.NONE);
+			break;
+		case AUTO:
+			config.setPresolve(SolverPresolve.AUTO);
+			break;
+		case CONSERVATIVE:
+			config.setPresolve(SolverPresolve.CONSERVATIVE);
+			break;
+		case AGGRESSIVE:
+			config.setPresolve(SolverPresolve.AGGRESSIVE);
+			break;
+		// default also captures NOT_CONFIGURED
+		default:
+			config.setPresolve(SolverPresolve.AUTO);
+		}
 
 		config.setEnableRndSeed(eConfig.isEnableSeed());
 		if (eConfig.isEnableSeed()) {
-			config.setIlpRndSeed(eConfig.getRndSeed());
+			config.setMilpRndSeed(eConfig.getRndSeed());
 		}
 
 		config.setEnableTimeLimit(eConfig.isEnableLimit());
@@ -221,6 +245,12 @@ public class GipsToIntermediate {
 		config.setThreadCountEnabled(eConfig.isEnableThreadCount());
 		if (eConfig.isEnableThreadCount()) {
 			config.setThreadCount(eConfig.getThreads());
+		}
+
+		// Callback configuration
+		config.setEnableSolverCallback(eConfig.isEnableSolverCallback());
+		if (eConfig.isEnableSolverCallback()) {
+			config.setSolverCallbackPath(eConfig.getSolverCallbackPath().replace("\"", ""));
 		}
 
 		data.model().setConfig(config);
@@ -255,14 +285,69 @@ public class GipsToIntermediate {
 			}
 
 			mapping.setName(eMapping.getName());
-			Variable mappingVariable = GipsConstraintUtils.createBinaryVariable(data, factory, eMapping.getName());
-			mapping.setMappingVariable(mappingVariable);
-			data.eVariable2Variable().put(eMapping, mappingVariable);
+
+			if (GipslScopeContextUtil.isMappingValueReferenced(eMapping)) {
+				Variable mappingVariable = GipsConstraintUtils.createBinaryVariable(data, factory, eMapping.getName());
+				mapping.setMappingVariable(mappingVariable);
+				data.eVariable2Variable().put(eMapping, mappingVariable);
+			}
 
 			data.model().getMappings().add(mapping);
 			data.eMapping2Mapping().put(eMapping, mapping);
 			gipsl2gipsTrace.map(eMapping, mapping);
 		});
+	}
+
+	protected void transformTypeExtensions() {
+		for (GipsTypeExtension eTypeExtension : data.gipslFile().getTypes()) {
+			if (eTypeExtension.getRef() == null)
+				continue;
+
+//			boolean isUsed = eTypeExtension.getVariables().stream()
+//					.anyMatch(var -> GipslScopeContextUtil.isVariableReferenced(var));
+//			if (!isUsed)
+//				continue;
+
+			EClass eClass = (EClass) eTypeExtension.getRef();
+			TypeExtension typeExtension = factory.createTypeExtension();
+			typeExtension.setExtendedType(eClass);
+			typeExtension.setName(eClass.getEPackage().getNsURI() + "/" + eClass.getName());
+			transformVariables(eTypeExtension, typeExtension);
+
+			data.model().getExtendedTypes().add(typeExtension);
+			gipsl2gipsTrace.map(eTypeExtension, typeExtension);
+
+			data.requiredTypes().add(eTypeExtension.getRef());
+		}
+	}
+
+	private void transformVariables(GipsTypeExtension eTypeExtension, TypeExtension typeExtension) {
+		if (eTypeExtension.getVariables() == null || eTypeExtension.getVariables().isEmpty())
+			return;
+
+		for (GipsTypeExtensionVariable eVariable : eTypeExtension.getVariables()) {
+			if (!GipslScopeContextUtil.isVariableReferenced(eVariable))
+				continue;
+
+			Variable variable = null;
+			if (eVariable.isBound() && eVariable.getAttribute() != null) {
+				BoundAttributeVariable attVariable = factory.createBoundAttributeVariable();
+				attVariable.setBoundToFeature(eVariable.getAttribute().getName());
+				variable = attVariable;
+			} else {
+				variable = factory.createVariable();
+			}
+
+			variable.setType(GipsTransformationUtils.typeToVariableType(eVariable.getType()));
+			variable.setName(eVariable.getName());
+			variable.setLowerBound(GipsTransformationUtils.getLowerBound(eVariable, variable.getType()));
+			variable.setUpperBound(GipsTransformationUtils.getUpperBound(eVariable, variable.getType()));
+
+			typeExtension.getAddedVariables().add(variable);
+			data.model().getVariables().add(variable);
+			data.eVariable2Variable().put(eVariable, variable);
+			gipsl2gipsTrace.map(eVariable, variable);
+		}
 	}
 
 	protected void transformGlobalConstants() throws Exception {
@@ -281,6 +366,9 @@ public class GipsToIntermediate {
 			return;
 
 		for (GipsMappingVariable gipsVar : mapping.getVariables()) {
+			if (!GipslScopeContextUtil.isVariableReferenced(gipsVar))
+				continue;
+
 			if (gipsVar.isBound()) {
 				RuleParameterVariable var = factory.createRuleParameterVariable();
 				var.setType(GipsTransformationUtils.typeToVariableType(gipsVar.getType()));
@@ -314,6 +402,9 @@ public class GipsToIntermediate {
 			return;
 
 		for (GipsMappingVariable gipsVar : mapping.getVariables()) {
+			if (!GipslScopeContextUtil.isVariableReferenced(gipsVar))
+				continue;
+
 			Variable var = factory.createVariable();
 			var.setType(GipsTransformationUtils.typeToVariableType(gipsVar.getType()));
 			var.setName(gipsVar.getName());
@@ -402,6 +493,8 @@ public class GipsToIntermediate {
 
 						VariableReference varRef = factory.createVariableReference();
 						varRef.setVariable(symbolicVariable);
+						varRef.setLocal(true);
+
 						if (subformula instanceof Literal lit && lit.phase()) {
 							if (currentSum.getLhs() == null && !subformulas.isEmpty()) {
 								currentSum.setLhs(varRef);
@@ -490,10 +583,9 @@ public class GipsToIntermediate {
 		BooleanExpressionTransformer transformer = transformationFactory.createBooleanTransformer(constraint);
 		constraint.setExpression(transformer.transform(subConstraint.getExpression()));
 
-		if (GipsTransformationUtils
-				.isConstantExpression(constraint.getExpression()) == ArithmeticExpressionType.constant) {
-			// Check whether this constraint is constant at ILP problem build time. If true
-			// -> return
+		if (GipsTransformationUtils.isConstantExpression(constraint.getExpression())) {
+			// Check whether this constraint is constant at (M)ILP problem build time. If
+			// true -> return
 			constraint.setConstant(true);
 			constraint.setNegated(isNegated);
 			return new LinkedList<>(List.of(constraint));
@@ -508,7 +600,7 @@ public class GipsToIntermediate {
 		constraint.setExpression(arithmeticTransformer.normalize((RelationalExpression) constraint.getExpression()));
 
 		// Normalize the relational expression operator such that it conforms to most
-		// ILP solver's requirements (i.e., no !=, > and < operators allowed).
+		// (M)ILP solver's requirements (i.e., no !=, > and < operators allowed).
 		Collection<Constraint> substitutes = new LinkedList<>();
 		if (symbolicVariable == null) {
 			substitutes = GipsConstraintUtils.normalizeOperator(data, factory, constraint, isNegated);
@@ -558,8 +650,8 @@ public class GipsToIntermediate {
 			ArithmeticExpressionTransformer transformer = transformationFactory
 					.createArithmeticTransformer(linearFunction);
 			linearFunction.setExpression(transformer.transform(eLinearFunction.getExpression()));
-			// Rewrite the expression, which will be translated into ILP-Terms, into a sum
-			// of products.
+			// Rewrite the expression, which will be translated into (M)ILP-Terms, into a
+			// sum of products.
 			linearFunction.setExpression(
 					new GipsArithmeticTransformer(factory).normalizeAndExpand(linearFunction.getExpression()));
 			gipsl2gipsTrace.map(eLinearFunction.getExpression(), linearFunction.getExpression());
@@ -606,8 +698,8 @@ public class GipsToIntermediate {
 
 		ArithmeticExpressionTransformer transformer = transformationFactory.createArithmeticTransformer(objective);
 		objective.setExpression(transformer.transform(eObjective.getExpression()));
-		// Rewrite the expression, which will be translated into ILP-Terms, into a sum
-		// of products.
+		// Rewrite the expression, which will be translated into (M)ILP-Terms, into a
+		// sum of products.
 		objective.setExpression(new GipsArithmeticTransformer(factory).normalizeAndExpand(objective.getExpression()));
 		gipsl2gipsTrace.map(eObjective.getExpression(), objective.getExpression());
 	}

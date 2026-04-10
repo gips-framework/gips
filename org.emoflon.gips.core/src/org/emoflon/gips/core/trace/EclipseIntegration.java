@@ -7,6 +7,7 @@ import java.rmi.registry.LocateRegistry;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Objects;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 import java.util.stream.StreamSupport;
 
@@ -25,8 +26,11 @@ public class EclipseIntegration {
 
 	private String modelIdIntermediate;
 	private String modelIdLp;
+	private String modelIdIis;
+	private String modelIdInput;
+	private String modelIdOutput;
 
-	private final Map<String, String> storedILPValues = new HashMap<>();
+	private final Map<String, String> storedMilpValues = new HashMap<>();
 
 	public EclipseIntegration(SolverConfig solverConfig) {
 		this.solverConfig = Objects.requireNonNull(solverConfig, "solverConfig");
@@ -42,13 +46,7 @@ public class EclipseIntegration {
 	 * @param modelUri to the intermediate xmi file
 	 */
 	public void computeIntermediateModelId(URI modelUri) {
-		Path modelPath;
-		if (modelUri.isPlatform())
-			modelPath = Path.of(modelUri.toPlatformString(true));
-		else
-			modelPath = Path.of(modelUri.toFileString());
-
-		String modelId = computeModelIdFromPath(modelPath);
+		String modelId = computeModelIdFromURI(modelUri);
 		setIntermediateModelId(modelId);
 	}
 
@@ -63,6 +61,43 @@ public class EclipseIntegration {
 		setLpModelId(modelId);
 	}
 
+	private void computeIISModelId(String path) {
+		Path modelPath = Path.of(path);
+		String modelId = computeModelIdFromPath(modelPath);
+		setIISModelId(modelId);
+	}
+
+	/**
+	 * Computes the model id for the input model.
+	 * 
+	 * @param modelUri to the input xmi file
+	 */
+	public void computeInputModelId(URI modelUri) {
+		String modelId = computeModelIdFromURI(modelUri);
+		setInputModelId(modelId);
+	}
+
+	/**
+	 * Computes the model id for the output model.
+	 * 
+	 * @param path to the output xmi file
+	 */
+	public void computeOutputModelId(String path) {
+		Path modelPath = Path.of(path);
+		String modelId = computeModelIdFromPath(modelPath);
+		setOutputModelId(modelId);
+	}
+
+	/**
+	 * Computes the model id for the output model.
+	 * 
+	 * @param modelUri to the output xmi file
+	 */
+	public void computeOutputModelId(URI modelUri) {
+		String modelId = computeModelIdFromURI(modelUri);
+		setOutputModelId(modelId);
+	}
+
 	/**
 	 * Sets the lp model id
 	 * 
@@ -70,6 +105,15 @@ public class EclipseIntegration {
 	 */
 	private void setLpModelId(String modelId) {
 		modelIdLp = modelId;
+	}
+
+	/**
+	 * Sets the IIS model id
+	 * 
+	 * @param modelId
+	 */
+	private void setIISModelId(String modelId) {
+		modelIdIis = modelId;
 	}
 
 	/**
@@ -81,6 +125,34 @@ public class EclipseIntegration {
 		modelIdIntermediate = modelId;
 	}
 
+	/**
+	 * Sets the input model id.
+	 * 
+	 * @param modelId
+	 */
+	private void setInputModelId(String modelId) {
+		modelIdInput = modelId;
+	}
+
+	/**
+	 * Sets the output model id.
+	 * 
+	 * @param modelId
+	 */
+	public void setOutputModelId(String modelId) {
+		modelIdOutput = modelId;
+	}
+
+	private String computeModelIdFromURI(URI modelUri) {
+		Path modelPath;
+		if (modelUri.isPlatform())
+			modelPath = Path.of(modelUri.toPlatformString(true));
+		else
+			modelPath = Path.of(modelUri.toFileString());
+
+		return computeModelIdFromPath(modelPath);
+	}
+
 	private String computeModelIdFromPath(Path modelPath) {
 		return computeModelIdFromPath(getWorkingDirectory(), modelPath);
 	}
@@ -89,7 +161,7 @@ public class EclipseIntegration {
 		if (!modelPath.isAbsolute())
 			modelPath = root.resolve(modelPath).normalize();
 
-		Path relativePath = root.relativize(modelPath); // we use the root (workspae) relative path as id
+		Path relativePath = root.relativize(modelPath); // we use the root (workspace) relative path as id
 		String id = StreamSupport.stream(relativePath.spliterator(), false).map(Path::toString)
 				.collect(Collectors.joining("/")); // use '/' like IPath.toString
 		return id;
@@ -105,7 +177,7 @@ public class EclipseIntegration {
 		return false;
 	}
 
-	public void sendTraceToIDE(Intermediate2IlpTracer tracer) {
+	public void sendLpTraceToIDE(GipsTracer tracer) {
 		if (!config.isTracingEnabled())
 			return;
 
@@ -114,17 +186,93 @@ public class EclipseIntegration {
 
 		computeLpModelId(solverConfig.getLpPath());
 
-		TraceMap<String, String> mapping = TraceMap.normalize(tracer.getMapping(), ResolveEcore2Id.INSTANCE,
-				ResolveIdentity2Id.INSTANCE);
-		TraceModelLink link = new TraceModelLink(getModelIdForIntermediateModel(), getModelIdForLpModel(), mapping);
+		TraceModelLink linkIntermediate = buildModelLink(getModelIdForIntermediateModel(), getModelIdForLpModel(),
+				tracer.getIntermediate2LpMapping(),
+				mapping -> TraceMap.normalize(mapping, ResolveEcore2Id.INSTANCE, ResolveIdentity2Id.INSTANCE));
+
+		TraceModelLink linkInput = buildModelLink(getModelIdForInputModel(), getModelIdForLpModel(),
+				tracer.getInput2LpMapping(),
+				mapping -> TraceMap.normalize(mapping, ResolveEcore2Id.INSTANCE, ResolveIdentity2Id.INSTANCE));
+
+		updateTraceModel(linkIntermediate, linkInput);
+	}
+
+	public void sendOutputTraceToIde(GipsTracer tracer) {
+		if (!config.isTracingEnabled())
+			return;
+
+		if (isLpPathNotValid())
+			return;
+
+		computeLpModelId(solverConfig.getLpPath());
+
+		TraceModelLink linkOutput = buildModelLink(getModelIdForLpModel(), getModelIdForOutputModel(),
+				tracer.getLp2OutputMapping(),
+				mapping -> TraceMap.normalize(mapping, ResolveIdentity2Id.INSTANCE, ResolveEcore2Id.INSTANCE));
+
+		updateTraceModel(linkOutput);
+	}
+
+	public void sendIISTraceToIde(String iisModelPath) {
+		if (!config.isTracingEnabled())
+			return;
+
+		if (isLpPathNotValid())
+			return;
+
+		computeIISModelId(iisModelPath);
 
 		try {
 			IRemoteEclipseService service = getRemoteService();
-			service.updateTraceModel(getContextId(), link);
+			String contextId = getContextId();
+
+			TraceModelLink intermediateToLp = service.getTraceModel(contextId, getModelIdForIntermediateModel(),
+					getModelIdForLpModel());
+
+			// While not technically 100% correct, the IIS model uses the same identifiers
+			// as the LP model. However, it is not feasible to 'parse' the IIS output and
+			// remove all superfluous elements.
+			TraceModelLink relinkIntermediate = new TraceModelLink(intermediateToLp.getSourceModel(), modelIdIis,
+					intermediateToLp.getMappings().clone());
+
+			updateTraceModel(relinkIntermediate);
+
 		} catch (RemoteException e) {
 			System.err.println("Unable to send trace to IDE. Reason:\n");
 			e.printStackTrace();
 		}
+	}
+
+	private void updateTraceModel(TraceModelLink... links) {
+		if (links == null || links.length == 0)
+			return;
+
+		try {
+			IRemoteEclipseService service = getRemoteService();
+			String contextId = getContextId();
+
+			for (TraceModelLink link : links) {
+				if (link != null)
+					service.updateTraceModel(contextId, link);
+			}
+
+		} catch (RemoteException e) {
+			System.err.println("Unable to send trace to IDE. Reason:\n");
+			e.printStackTrace();
+		}
+	}
+
+	private <S, D> TraceModelLink buildModelLink(String srcModelId, String dstModelId, TraceMap<S, D> mapping,
+			Function<TraceMap<S, D>, TraceMap<String, String>> processor) {
+
+		if (srcModelId == null || dstModelId == null)
+			return null;
+
+		TraceMap<String, String> processedMap = processor.apply(mapping);
+		if (processedMap == null)
+			return null;
+
+		return new TraceModelLink(srcModelId, dstModelId, processedMap);
 	}
 
 	public void sendSolutionValuesToIDE() {
@@ -138,7 +286,7 @@ public class EclipseIntegration {
 
 		try {
 			IRemoteEclipseService service = getRemoteService();
-			service.updateModelValues(getContextId(), getModelIdForLpModel(), storedILPValues);
+			service.updateModelValues(getContextId(), getModelIdForLpModel(), storedMilpValues);
 		} catch (RemoteException e) {
 			System.err.println("Unable to send solution values to IDE. Reason:\n");
 			e.printStackTrace();
@@ -146,11 +294,11 @@ public class EclipseIntegration {
 	}
 
 	public void storeSolutionValues(Map<String, Number> values) {
-		storedILPValues.clear();
+		storedMilpValues.clear();
 
 		for (var entry : values.entrySet()) {
 			if (entry.getValue() != null) {
-				storedILPValues.put(entry.getKey(), entry.getValue().toString());
+				storedMilpValues.put(entry.getKey(), entry.getValue().toString());
 			}
 		}
 	}
@@ -174,12 +322,44 @@ public class EclipseIntegration {
 		}
 	}
 
+	/**
+	 * Returns the intermediate model id. This model id may be available after the
+	 * initialization stage.
+	 * 
+	 * @return intermediate model id or null, if not available
+	 */
 	public String getModelIdForIntermediateModel() {
 		return modelIdIntermediate;
 	}
 
+	/**
+	 * Returns the lp model id. This model id may be available after the (M)ILP
+	 * build stage.
+	 * 
+	 * @return lp model id or null, if not available
+	 */
 	public String getModelIdForLpModel() {
 		return modelIdLp;
+	}
+
+	/**
+	 * Returns the input model id. This model id may be available after the
+	 * initialization stage.
+	 * 
+	 * @return input model id or null, if not available
+	 */
+	public String getModelIdForInputModel() {
+		return modelIdInput;
+	}
+
+	/**
+	 * Returns the output model id. This model id may be available after the model
+	 * is saved
+	 * 
+	 * @return input model id or null, if not available
+	 */
+	public String getModelIdForOutputModel() {
+		return modelIdOutput;
 	}
 
 }

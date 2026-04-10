@@ -4,6 +4,13 @@
 package org.emoflon.gips.gipsl.ui;
 
 import org.eclipse.ui.plugin.AbstractUIPlugin;
+import org.eclipse.xtext.ui.editor.outline.impl.OutlineFilterAndSorter.IComparator;
+import org.eclipse.xtext.ui.editor.preferences.IPreferenceStoreInitializer;
+import org.emoflon.gips.gipsl.ui.outline.DefaultOutlineComparator;
+import org.emoflon.gips.gipsl.ui.visualization.PlantUMLPreferences;
+
+import com.google.inject.Binder;
+import com.google.inject.name.Names;
 
 /**
  * Use this class to register components to be used within the Eclipse IDE.
@@ -13,4 +20,16 @@ public class GipslUiModule extends AbstractGipslUiModule {
 	public GipslUiModule(AbstractUIPlugin plugin) {
 		super(plugin);
 	}
+
+	@Override
+	public Class<? extends IComparator> bindOutlineFilterAndSorter$IComparator() {
+		return DefaultOutlineComparator.class;
+	}
+
+	@Override
+	public void configureIPreferenceStoreInitializer(Binder binder) {
+		binder.bind(IPreferenceStoreInitializer.class).annotatedWith(Names.named("PlantUMLPreferences"))
+				.to(PlantUMLPreferences.Initializer.class);
+	}
+
 }

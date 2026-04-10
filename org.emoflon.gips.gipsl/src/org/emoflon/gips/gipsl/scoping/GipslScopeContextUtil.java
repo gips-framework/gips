@@ -2,11 +2,13 @@ package org.emoflon.gips.gipsl.scoping;
 
 import java.io.File;
 import java.util.Collection;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
 import java.util.Map;
+import java.util.Queue;
 import java.util.Set;
 import java.util.stream.Collectors;
 
@@ -14,6 +16,7 @@ import org.eclipse.core.resources.IProject;
 import org.eclipse.core.resources.IResource;
 import org.eclipse.core.resources.ResourcesPlugin;
 import org.eclipse.core.runtime.Path;
+import org.eclipse.emf.common.util.TreeIterator;
 import org.eclipse.emf.common.util.URI;
 import org.eclipse.emf.ecore.EClass;
 import org.eclipse.emf.ecore.EDataType;
@@ -21,6 +24,7 @@ import org.eclipse.emf.ecore.EEnum;
 import org.eclipse.emf.ecore.EObject;
 import org.eclipse.emf.ecore.EReference;
 import org.eclipse.emf.ecore.resource.Resource;
+import org.eclipse.emf.ecore.util.EcoreUtil;
 import org.eclipse.swt.widgets.Display;
 import org.eclipse.ui.IEditorInput;
 import org.eclipse.ui.IEditorPart;
@@ -34,8 +38,12 @@ import org.emoflon.gips.gipsl.gipsl.GipsAttributeExpression;
 import org.emoflon.gips.gipsl.gipsl.GipsAttributeLiteral;
 import org.emoflon.gips.gipsl.gipsl.GipsConstantReference;
 import org.emoflon.gips.gipsl.gipsl.GipsConstraint;
+import org.emoflon.gips.gipsl.gipsl.GipsJoinBySelectionOperation;
+import org.emoflon.gips.gipsl.gipsl.GipsJoinPairSelection;
+import org.emoflon.gips.gipsl.gipsl.GipsJoinSingleSelection;
 import org.emoflon.gips.gipsl.gipsl.GipsLinearFunction;
 import org.emoflon.gips.gipsl.gipsl.GipsLinearFunctionReference;
+import org.emoflon.gips.gipsl.gipsl.GipsLocalContextExpression;
 import org.emoflon.gips.gipsl.gipsl.GipsMapping;
 import org.emoflon.gips.gipsl.gipsl.GipsMappingExpression;
 import org.emoflon.gips.gipsl.gipsl.GipsMappingVariable;
@@ -43,11 +51,15 @@ import org.emoflon.gips.gipsl.gipsl.GipsNodeExpression;
 import org.emoflon.gips.gipsl.gipsl.GipsPatternExpression;
 import org.emoflon.gips.gipsl.gipsl.GipsRuleExpression;
 import org.emoflon.gips.gipsl.gipsl.GipsSetElementExpression;
+import org.emoflon.gips.gipsl.gipsl.GipsSetExpression;
 import org.emoflon.gips.gipsl.gipsl.GipsTransformOperation;
 import org.emoflon.gips.gipsl.gipsl.GipsTypeExpression;
+import org.emoflon.gips.gipsl.gipsl.GipsTypeExtension;
+import org.emoflon.gips.gipsl.gipsl.GipsTypeExtensionVariable;
 import org.emoflon.gips.gipsl.gipsl.GipsTypeQuery;
 import org.emoflon.gips.gipsl.gipsl.GipsTypeSelect;
 import org.emoflon.gips.gipsl.gipsl.GipsValueExpression;
+import org.emoflon.gips.gipsl.gipsl.GipsVariable;
 import org.emoflon.gips.gipsl.gipsl.GipsVariableReferenceExpression;
 import org.emoflon.gips.gipsl.gipsl.GipslPackage;
 import org.emoflon.gips.gipsl.gipsl.ImportedPattern;
@@ -55,6 +67,8 @@ import org.emoflon.gips.gipsl.gipsl.impl.EditorGTFileImpl;
 import org.emoflon.gips.gipsl.gipsl.impl.GipsConstantReferenceImpl;
 import org.emoflon.gips.gipsl.gipsl.impl.GipsConstraintImpl;
 import org.emoflon.gips.gipsl.gipsl.impl.GipsLinearFunctionImpl;
+import org.emoflon.ibex.gt.editor.gT.EditorNode;
+import org.emoflon.ibex.gt.editor.gT.EditorOperator;
 import org.emoflon.ibex.gt.editor.gT.EditorPattern;
 import org.emoflon.ibex.gt.editor.utils.GTEditorModelUtils;
 import org.emoflon.ibex.gt.editor.utils.GTEditorPatternUtils;
@@ -74,7 +88,7 @@ public final class GipslScopeContextUtil {
 	}
 
 	public static boolean isGipsMappingVariableType(final EObject context, final EReference reference) {
-		return context instanceof GipsMappingVariable && reference == GipslPackage.Literals.GIPS_MAPPING_VARIABLE__TYPE;
+		return context instanceof GipsMappingVariable && reference == GipslPackage.Literals.GIPS_VARIABLE__TYPE;
 	}
 
 	public static boolean isGipsMappingVariableParameter(final EObject context, final EReference reference) {
@@ -89,7 +103,16 @@ public final class GipslScopeContextUtil {
 
 	public static boolean isGipsVariableReferenceExpression(final EObject context, final EReference reference) {
 		return context instanceof GipsVariableReferenceExpression
-				&& reference == GipslPackage.Literals.GIPS_VARIABLE_REFERENCE_EXPRESSION__VARIABLE;
+				&& (reference == GipslPackage.Literals.GIPS_VARIABLE_REFERENCE_EXPRESSION__VARIABLE);
+	}
+
+	public static boolean isGipsTypeExtension(final EObject context, final EReference reference) {
+		return context instanceof GipsTypeExtension;
+	}
+
+	public static boolean isGipsTypeExtensionVariableType(final EObject context, final EReference reference) {
+		return context instanceof GipsTypeExtensionVariable && (reference == GipslPackage.Literals.GIPS_VARIABLE__TYPE
+				|| reference == GipslPackage.Literals.GIPS_TYPE_EXTENSION_VARIABLE__ATTRIBUTE);
 	}
 
 	public static boolean isGipsConstraintContext(final EObject context, final EReference reference) {
@@ -125,17 +148,15 @@ public final class GipslScopeContextUtil {
 	}
 
 	public static boolean isGipsNodeExpression(final EObject context, final EReference reference) {
-		return context instanceof GipsNodeExpression && reference == GipslPackage.Literals.GIPS_NODE_EXPRESSION__NODE;
+		return context instanceof GipsNodeExpression;
 	}
 
 	public static boolean isGipsAttributeExpression(final EObject context, final EReference reference) {
-		return context instanceof GipsAttributeExpression
-				&& reference == GipslPackage.Literals.GIPS_ATTRIBUTE_LITERAL__LITERAL;
+		return context instanceof GipsAttributeExpression;
 	}
 
 	public static boolean isGipsAttributeLiteral(final EObject context, final EReference reference) {
-		return context instanceof GipsAttributeLiteral
-				&& reference == GipslPackage.Literals.GIPS_ATTRIBUTE_LITERAL__LITERAL;
+		return context instanceof GipsAttributeLiteral;
 	}
 
 	public static boolean isGipsTypeSelect(final EObject context, final EReference reference) {
@@ -146,7 +167,36 @@ public final class GipslScopeContextUtil {
 		return context instanceof GipsTypeQuery && reference == GipslPackage.Literals.GIPS_TYPE_QUERY__TYPE;
 	}
 
-	public static Object getContainer(EObject node, Set<Class<?>> classes) {
+	public static boolean isGipsJoinBySelection(final EObject context, final EReference reference) {
+		return context instanceof GipsJoinBySelectionOperation;
+	}
+
+	public static boolean isGipsJoinSingleSelection(final EObject context, final EReference reference) {
+		return context instanceof GipsJoinSingleSelection
+				&& reference == org.emoflon.gips.gipsl.gipsl.GipslPackage.Literals.GIPS_JOIN_SINGLE_SELECTION__NODE;
+	}
+
+	public static boolean isGipsJoinPairSelection(final EObject context, final EReference reference) {
+		return context instanceof GipsJoinPairSelection
+				&& (reference == GipslPackage.Literals.GIPS_JOIN_PAIR_SELECTION__LEFT_NODE
+						|| reference == GipslPackage.Literals.GIPS_JOIN_PAIR_SELECTION__RIGHT_NODE);
+	}
+
+	public static boolean isGipsLocalContextExpression(final EObject context, final EReference reference) {
+		return context instanceof GipsLocalContextExpression;
+	}
+
+	public static boolean isGipsSetElementExpression(final EObject context, final EReference reference) {
+		return context instanceof GipsSetElementExpression;
+	}
+
+	@SuppressWarnings("unchecked")
+	public static <E> E getContainer(EObject node, Class<E> clazz) {
+		EObject container = getContainer(node, Collections.singleton(clazz));
+		return (E) container;
+	}
+
+	public static EObject getContainer(EObject node, Set<Class<?>> classes) {
 		if (node == null)
 			return null;
 
@@ -320,6 +370,25 @@ public final class GipslScopeContextUtil {
 				.collect(Collectors.toList());
 	}
 
+	public static EditorPattern getPatternOrRuleOf(final EObject context) {
+		return switch (context) {
+		case EditorPattern pattern -> pattern;
+		case GipsPatternExpression pattern -> pattern.getPattern();
+		case GipsMapping mapping -> mapping.getPattern();
+		case GipsMappingExpression mapping when mapping.getMapping() != null -> mapping.getMapping().getPattern();
+		case GipsRuleExpression rule -> rule.getRule();
+		case null, default -> null;
+		};
+	}
+
+	public static Set<EditorNode> getNonCreatedEditorNodes(final EditorPattern pattern) {
+		if (pattern == null)
+			return Collections.emptySet();
+		return pattern.getNodes().stream() //
+				.filter(n -> n.getOperator() != EditorOperator.CREATE) //
+				.collect(Collectors.toSet());
+	}
+
 	public static EObject getLocalContext(final EObject expression) {
 		EObject root = (EObject) GipslScopeContextUtil.getContainer(expression,
 				Set.of(GipsConstraintImpl.class, GipsLinearFunctionImpl.class, GipsConstantReferenceImpl.class));
@@ -337,37 +406,144 @@ public final class GipslScopeContextUtil {
 	}
 
 	public static boolean hasLocalContext(final EObject expression) {
-		EObject root = (EObject) GipslScopeContextUtil.getContainer(expression,
-				Set.of(GipsConstraintImpl.class, GipsLinearFunctionImpl.class));
-
-		if (root instanceof GipsConstraint constraint) {
-			return constraint.getContext() != null;
-		} else if (root instanceof GipsLinearFunction function) {
-			return function.getContext() != null;
-		} else {
-			return false;
-		}
+		return getLocalContext(expression) != null;
 	}
 
 	public static EObject getSetContext(final EObject expression) {
 		if (expression instanceof GipsTypeSelect select && select.getType() != null) {
 			return select.getType();
+
+		} else if (expression instanceof GipsSetExpression expr && expr.getOperation() instanceof GipsTypeSelect select
+				&& select.getType() != null) {
+			return select.getType();
+
 		} else if (expression instanceof GipsTransformOperation transform && transform.getExpression() != null) {
 			return transform.getExpression();
+
 		} else if (expression.eContainer() instanceof GipsValueExpression root
 				&& !(root.getValue() instanceof GipsSetElementExpression)) {
-			return root.getValue();
+			return getSetContext(expression.eContainer());
+
 		} else if (expression instanceof GipsValueExpression root
 				&& !(root.getValue() instanceof GipsSetElementExpression)) {
+
+			EObject value = root.getValue();
+			if (value instanceof GipsLocalContextExpression localExpression) {
+				EObject right = localExpression.getExpression();
+
+				if (right instanceof GipsNodeExpression nodeExpression)
+					right = nodeExpression.getExpression();
+
+				if (right instanceof GipsAttributeExpression attributeExpression) {
+					GipsAttributeExpression lastAttributeExpression = attributeExpression;
+					while (lastAttributeExpression
+							.getRight() instanceof GipsAttributeExpression nextAttributeExpression) {
+						lastAttributeExpression = nextAttributeExpression;
+					}
+					return lastAttributeExpression;
+				}
+			}
 			return root.getValue();
+
 		} else if (expression.eContainer() instanceof GipsConstantReference reference && reference.getConstant() != null
 				&& reference.getConstant().getExpression() != null) {
 			return getSetContext(reference.getConstant().getExpression());
+
 		} else if (expression.eContainer() == null) {
 			return null;
+
 		} else {
 			return getSetContext(expression.eContainer());
+
 		}
+	}
+
+	public static boolean isMappingValueReferenced(final GipsMapping mapping) {
+		final EditorGTFile gtFile = GTEditorPatternUtils.getContainer(mapping, EditorGTFileImpl.class);
+		final Collection<EObject> toBeScanned = new HashSet<>();
+		toBeScanned.addAll(gtFile.getConstraints());
+		toBeScanned.addAll(gtFile.getFunctions());
+		toBeScanned.add(gtFile.getObjective());
+		toBeScanned.remove(null);
+
+		TreeIterator<EObject> iterator = EcoreUtil.getAllProperContents(toBeScanned, true);
+
+		while (iterator.hasNext()) {
+			EObject next = iterator.next();
+			if (next instanceof GipsSetElementExpression expression) {
+				iterator.prune();
+
+				if (expression.getExpression() instanceof GipsVariableReferenceExpression varReferenceExpression) {
+					if (varReferenceExpression.isIsMappingValue()) {
+						EObject setContext = GipslScopeContextUtil.getSetContext(expression);
+						if (setContext instanceof GipsMappingExpression mappingExpression) {
+							if (mapping.equals(mappingExpression.getMapping())) {
+								return true; // mapping.value is used at least once (as element.value)
+							}
+						}
+					}
+				}
+			} else if (next instanceof GipsLocalContextExpression expression) {
+				iterator.prune();
+
+				if (expression.getExpression() instanceof GipsVariableReferenceExpression varReferenceExpression) {
+					if (varReferenceExpression.isIsMappingValue()) {
+						EObject localContext = GipslScopeContextUtil.getLocalContext(expression);
+						if (localContext instanceof GipsMapping localMapping) {
+							if (mapping.equals(localMapping)) {
+								return true; // mapping.value is used at least once (as context.value)
+							}
+						}
+					}
+				}
+			}
+		}
+
+		return false;
+	}
+
+	public static boolean isVariableReferenced(final GipsVariable variable) {
+		final EditorGTFile gtFile = GTEditorPatternUtils.getContainer(variable, EditorGTFileImpl.class);
+		final Collection<EObject> toBeScanned = new HashSet<>();
+		toBeScanned.addAll(gtFile.getConstraints());
+		toBeScanned.addAll(gtFile.getFunctions());
+		toBeScanned.add(gtFile.getObjective());
+		toBeScanned.remove(null);
+
+		TreeIterator<EObject> iterator = EcoreUtil.getAllProperContents(toBeScanned, true);
+
+		while (iterator.hasNext()) {
+			EObject next = iterator.next();
+			if (next instanceof GipsVariableReferenceExpression varReferenceExpression) {
+				if (varReferenceExpression.isIsGenericValue()) {
+					if (variable.equals(varReferenceExpression.getVariable()))
+						return true;
+				}
+			}
+		}
+
+		return false;
+	}
+
+	public static Collection<GipsTypeExtension> getAllTypeExtensionsForType(EObject expression, EClass type) {
+		final EditorGTFile gtFile = GTEditorPatternUtils.getContainer(expression, EditorGTFileImpl.class);
+		if (gtFile.getTypes().isEmpty())
+			return Collections.emptyList();
+
+		Queue<EClass> fringe = new LinkedList<>();
+		Collection<EClass> discovered = new HashSet<>();
+
+		fringe.add(type);
+
+		while (!fringe.isEmpty()) {
+			EClass eClass = fringe.poll();
+			discovered.add(eClass);
+			for (EClass superType : eClass.getEAllSuperTypes())
+				if (!discovered.contains(superType))
+					fringe.add(superType);
+		}
+
+		return gtFile.getTypes().stream().filter(ext -> discovered.contains(ext.getRef())).toList();
 	}
 
 	public static void gatherFilesWithEnding(Collection<File> gtFiles, File root, String ending, boolean ignoreBin) {
@@ -418,4 +594,5 @@ public final class GipslScopeContextUtil {
 
 		return project;
 	}
+
 }

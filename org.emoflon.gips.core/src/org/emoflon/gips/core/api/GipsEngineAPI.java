@@ -3,19 +3,25 @@ package org.emoflon.gips.core.api;
 import java.io.IOException;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Objects;
 
 import org.eclipse.emf.common.util.URI;
 import org.eclipse.emf.ecore.resource.Resource;
 import org.eclipse.emf.ecore.resource.ResourceSet;
 import org.eclipse.emf.ecore.resource.impl.ResourceSetImpl;
 import org.eclipse.emf.ecore.xmi.impl.XMIResourceFactoryImpl;
+import org.emoflon.gips.core.GipsConfig;
 import org.emoflon.gips.core.GipsEngine;
+import org.emoflon.gips.core.GipsMapper;
 import org.emoflon.gips.core.GipsObjective;
 import org.emoflon.gips.core.TypeIndexer;
+import org.emoflon.gips.core.gt.GipsPatternMapper;
+import org.emoflon.gips.core.gt.GipsRuleMapper;
+import org.emoflon.gips.core.gt.PatternMatch2MappingSorter;
 import org.emoflon.gips.core.milp.Solver;
 import org.emoflon.gips.core.milp.SolverConfig;
 import org.emoflon.gips.core.trace.EclipseIntegration;
-import org.emoflon.gips.core.trace.Intermediate2IlpTracer;
+import org.emoflon.gips.core.trace.GipsTracer;
 import org.emoflon.gips.core.validation.GipsConstraintValidationLog;
 import org.emoflon.gips.intermediate.GipsIntermediate.GipsIntermediateModel;
 import org.emoflon.gips.intermediate.GipsIntermediate.GipsIntermediatePackage;
@@ -36,9 +42,13 @@ public abstract class GipsEngineAPI<EMOFLON_APP extends GraphTransformationApp<E
 	protected GipsMapperFactory<EMOFLON_API> mapperFactory;
 	protected GipsConstraintFactory<? extends GipsEngineAPI<EMOFLON_APP, EMOFLON_API>, EMOFLON_API> constraintFactory;
 	protected GipsLinearFunctionFactory<? extends GipsEngineAPI<EMOFLON_APP, EMOFLON_API>, EMOFLON_API> functionFactory;
+	protected GipsTypeExtenderFactory<? extends GipsEngineAPI<EMOFLON_APP, EMOFLON_API>, EMOFLON_API> typeExtensionFactory;
+
+	protected PatternMatch2MappingSorter matchSorter;
 
 	protected GipsEngineAPI(final EMOFLON_APP eMoflonApp) {
 		this.eMoflonApp = eMoflonApp;
+		this.config = new GipsConfig();
 	}
 
 	public void reinitializeSolver() {
@@ -54,15 +64,15 @@ public abstract class GipsEngineAPI<EMOFLON_APP extends GraphTransformationApp<E
 	}
 
 	/**
-	 * Overwrites the previously configured number of ILP solver threads with the
+	 * Overwrites the previously configured number of (M)ILP solver threads with the
 	 * given parameter's value.
 	 * 
-	 * @param numberOfThreads Number of ILP solver threads to set.
+	 * @param numberOfThreads Number of (M)ILP solver threads to set.
 	 * @deprecated Use {@link #getSolverConfig()} and
 	 *             {@link SolverConfig#setThreadCount(int)}
 	 */
 	@Deprecated
-	public void setIlpSolverThreads(final int numberOfThreads) {
+	public void setMIlpSolverThreads(final int numberOfThreads) {
 		getSolverConfig().setThreadCount(numberOfThreads);
 	}
 
@@ -77,6 +87,53 @@ public abstract class GipsEngineAPI<EMOFLON_APP extends GraphTransformationApp<E
 	@Deprecated
 	public void setTimeLimit(final double newTimeLimit) {
 		getSolverConfig().setTimeLimit(newTimeLimit);
+	}
+
+	/**
+	 * Overwrite the previously configured callback file path with the given
+	 * parameter's value.
+	 * 
+	 * @param callbackPath New callback file path to set.
+	 * @deprecated Use {@link #getSolverConfig()} and
+	 *             {@link SolverConfig#setCallbackPath(String)}
+	 */
+	@Deprecated
+	public void setCallbackPath(final String callbackPath) {
+		Objects.requireNonNull(callbackPath);
+		getSolverConfig().setEnableCallbackPath(true);
+		getSolverConfig().setCallbackPath(callbackPath);
+	}
+
+	/**
+	 * Overwrite the previously configured solver parameter path with the given
+	 * parameter's value.
+	 * 
+	 * @param newParameterPath New parameter path to set.
+	 * @deprecated Use {@link #getSolverConfig()} and
+	 *             {@link SolverConfig#setParameterPath(String)}
+	 */
+	@Deprecated
+	public void setSolverParameterPath(final String newParameterPath) {
+		getSolverConfig().setParameterPath(newParameterPath);
+	}
+
+	public void setMatchSorter(PatternMatch2MappingSorter matchSorter) {
+		this.matchSorter = matchSorter;
+		updateMapperWithSorter();
+	}
+
+	public PatternMatch2MappingSorter getMatchSorter() {
+		return this.matchSorter;
+	}
+
+	private void updateMapperWithSorter() {
+		boolean enableMatchSorting = matchSorter != null;
+
+		for (GipsMapper<?> mapper : this.mappers.values()) {
+			if (mapper instanceof GipsPatternMapper<?, ?, ?> pm) {
+				pm.enableMatchSorting(enableMatchSorting);
+			}
+		}
 	}
 
 	public EMOFLON_APP getEMoflonApp() {
@@ -94,14 +151,27 @@ public abstract class GipsEngineAPI<EMOFLON_APP extends GraphTransformationApp<E
 
 	@Override
 	public void update() {
-		if (eMoflonAPI != null) {
+		if (eMoflonAPI != null)
 			eMoflonAPI.updateMatches();
+
+		if (matchSorter != null) {
+			for (GipsMapper<?> mapper : this.mappers.values()) {
+				if (mapper instanceof GipsPatternMapper<?, ?, ?> pm) {
+					pm.sortMatchesAndCreateMappings(matchSorter);
+				}
+			}
 		}
 	}
 
 	@Override
 	public void saveResult() throws IOException {
-		eMoflonApp.getModel().getResources().get(0).save(null);
+		Resource r = eMoflonApp.getModel().getResources().get(0);
+		r.save(null);
+
+		if (getEclipseIntegration().getConfig().isTracingEnabled()) {
+			getEclipseIntegration().computeOutputModelId(r.getURI());
+			getEclipseIntegration().sendOutputTraceToIde(getTracer());
+		}
 	}
 
 	@Override
@@ -114,6 +184,12 @@ public abstract class GipsEngineAPI<EMOFLON_APP extends GraphTransformationApp<E
 		// Fetch model contents from eMoflon
 		r.getContents().addAll(eMoflonApp.getModel().getResources().get(0).getContents());
 		r.save(null);
+
+		if (getEclipseIntegration().getConfig().isTracingEnabled()) {
+			getEclipseIntegration().computeOutputModelId(path);
+			getEclipseIntegration().sendOutputTraceToIde(getTracer());
+		}
+
 		// Hand model back to owner
 		eMoflonApp.getModel().getResources().get(0).getContents().addAll(r.getContents());
 	}
@@ -206,9 +282,9 @@ public abstract class GipsEngineAPI<EMOFLON_APP extends GraphTransformationApp<E
 		solverConfig.setTimeLimitIncludeInitTime(config.isTimeLimitIncludeInitTime());
 
 		solverConfig.setEnabledRandomSeed(config.isEnableRndSeed());
-		solverConfig.setRandomSeed(config.getIlpRndSeed());
+		solverConfig.setRandomSeed(config.getMilpRndSeed());
 
-		solverConfig.setEnablePresolve(config.isEnablePresolve());
+		solverConfig.setPresolve(config.getPresolve());
 		solverConfig.setEnableOutput(config.isEnableDebugOutput());
 
 		solverConfig.setEnableTolerance(config.isEnableCustomTolerance());
@@ -220,6 +296,11 @@ public abstract class GipsEngineAPI<EMOFLON_APP extends GraphTransformationApp<E
 		solverConfig.setEnableThreadCount(config.isThreadCountEnabled());
 		if (config.isThreadCountEnabled())
 			solverConfig.setThreadCount(config.getThreadCount());
+
+		if (config.isEnableSolverCallback()) {
+			solverConfig.setEnableCallbackPath(true);
+			solverConfig.setCallbackPath(config.getSolverCallbackPath());
+		}
 	}
 
 	/**
@@ -243,6 +324,7 @@ public abstract class GipsEngineAPI<EMOFLON_APP extends GraphTransformationApp<E
 		}
 
 		initInternalCommon(gipsModelURI);
+		eclipseIntegration.computeInputModelId(modelUri);
 	}
 
 	/**
@@ -268,6 +350,7 @@ public abstract class GipsEngineAPI<EMOFLON_APP extends GraphTransformationApp<E
 		}
 
 		initInternalCommon(gipsModelURI);
+		eclipseIntegration.computeInputModelId(modelUri);
 	}
 
 	/**
@@ -333,7 +416,9 @@ public abstract class GipsEngineAPI<EMOFLON_APP extends GraphTransformationApp<E
 		setSolverConfig(gipsModel.getConfig());
 		initEclipseIntegration();
 		initMapperFactory();
+		initTypeExtensionFactory();
 		createMappers();
+		createTypeExtensions();
 		initConstraintFactory();
 		createConstraints();
 		initLinearFunctionFactory();
@@ -370,10 +455,15 @@ public abstract class GipsEngineAPI<EMOFLON_APP extends GraphTransformationApp<E
 	protected void initEclipseIntegration() {
 		eclipseIntegration = new EclipseIntegration(getSolverConfig());
 		eclipseIntegration.computeIntermediateModelId(gipsModel.eResource().getURI());
-		tracer = new Intermediate2IlpTracer(eclipseIntegration);
+		tracer = new GipsTracer(eclipseIntegration);
 	}
 
 	protected abstract void createMappers();
+
+	protected void createTypeExtensions() {
+		gipsModel.getExtendedTypes().stream()
+				.forEach(typeExtension -> addTypeExtension(typeExtensionFactory.createTypeExtender(typeExtension)));
+	}
 
 	protected void createConstraints() {
 		gipsModel.getConstraints().stream()
@@ -390,8 +480,45 @@ public abstract class GipsEngineAPI<EMOFLON_APP extends GraphTransformationApp<E
 
 	protected abstract void initLinearFunctionFactory();
 
+	protected abstract void initTypeExtensionFactory();
+
 	protected abstract GipsObjective createObjective();
 
 	protected abstract Solver createSolver();
+
+	/**
+	 * Applies all non-zero mappings across all defined (GT rule) mappers while
+	 * updating the pattern matcher. Calling this method is equivalent to running
+	 * `api.getXMapping().applyNonZeroMappings(true)` for all mappings defined on GT
+	 * rules.
+	 */
+	public void applyAllNonZeroMappings() {
+		applyAllNonZeroMappings(true);
+	}
+
+	/**
+	 * Applies all non-zero mappings across all defined (GT rule) mappers while
+	 * updating the pattern matcher according to the given parameter `doUpdate`.
+	 * Calling this method is equivalent to running
+	 * `api.getXMapping().applyNonZeroMappings(doUpdate)` for all mappings defined
+	 * on GT rules.
+	 * 
+	 * @param doUpdate If true, the pattern matcher should be updated throughout the
+	 *                 mapper application.
+	 */
+	public void applyAllNonZeroMappings(final boolean doUpdate) {
+		this.mappers.values().forEach(m -> {
+			if (m instanceof GipsRuleMapper ruleMapper) {
+				ruleMapper.applyNonZeroMappings(doUpdate);
+			}
+		});
+	}
+
+	/**
+	 * Applies all bound variables across all types with variables.
+	 */
+	public void applyAllBoundVariables() {
+		this.typeExtensions.values().forEach(e -> e.applyAllBoundVariablesToModel());
+	}
 
 }

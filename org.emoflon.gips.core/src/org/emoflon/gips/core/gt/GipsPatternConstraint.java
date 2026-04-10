@@ -8,6 +8,7 @@ import org.emoflon.gips.core.milp.model.BinaryVariable;
 import org.emoflon.gips.core.milp.model.Constraint;
 import org.emoflon.gips.core.milp.model.Term;
 import org.emoflon.gips.core.milp.model.Variable;
+import org.emoflon.gips.core.util.StreamUtils;
 import org.emoflon.gips.core.validation.GipsValidationEventType;
 import org.emoflon.gips.intermediate.GipsIntermediate.PatternConstraint;
 import org.emoflon.gips.intermediate.GipsIntermediate.RelationalExpression;
@@ -26,22 +27,17 @@ public abstract class GipsPatternConstraint<ENGINE extends GipsEngine, M extends
 	}
 
 	@Override
-	public void buildConstraints() {
-		// TODO: stream() -> parallelStream() once GIPS is based on the new shiny GT
-		// language
-		pattern.findMatches(false).stream().forEach(context -> {
+	public void buildConstraints(final boolean parallel) {
+		StreamUtils.toStream(pattern.findMatches(false), parallel).forEach(context -> {
 			final Constraint candidate = buildConstraint(context);
 			if (candidate != null) {
-				ilpConstraints.put(context, buildConstraint(context));
+				milpConstraints.put(context, buildConstraint(context));
 			}
 		});
-
 		if (constraint.isDepending()) {
-			// TODO: stream() -> parallelStream() once GIPS is based on the new shiny GT
-			// language
-			pattern.findMatches(false).stream().forEach(context -> {
+			StreamUtils.toStream(pattern.findMatches(false), parallel).forEach(context -> {
 				final List<Constraint> constraints = buildAdditionalConstraints(context);
-				additionalIlpConstraints.put(context, constraints);
+				additionalMilpConstraints.put(context, constraints);
 			});
 
 		}
@@ -50,7 +46,8 @@ public abstract class GipsPatternConstraint<ENGINE extends GipsEngine, M extends
 	@Override
 	public Constraint buildConstraint(final M context) {
 		if (!isConstant && !(constraint.getExpression() instanceof RelationalExpression))
-			throw new IllegalArgumentException("Boolean values can not be transformed to ilp relational constraints.");
+			throw new IllegalArgumentException(
+					"Boolean values can not be transformed to (M)ILP relational constraints.");
 
 		if (!isConstant) {
 			RelationalOperator operator = ((RelationalExpression) constraint.getExpression()).getOperator();
@@ -161,9 +158,9 @@ public abstract class GipsPatternConstraint<ENGINE extends GipsEngine, M extends
 	public void calcAdditionalVariables() {
 		for (org.emoflon.gips.intermediate.GipsIntermediate.Variable variable : constraint.getHelperVariables()) {
 			for (M context : pattern.findMatches(false)) {
-				Variable<?> ilpVar = buildVariable(variable, context);
-				addAdditionalVariable(context, variable, ilpVar);
-				engine.addNonMappingVariable(context, variable, ilpVar);
+				Variable<?> milpVar = buildVariable(variable, context);
+				addAdditionalVariable(context, variable, milpVar);
+				engine.addNonMappingVariable(context, variable, milpVar);
 			}
 		}
 	}

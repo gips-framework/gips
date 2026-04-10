@@ -8,7 +8,7 @@
 * Install [AdoptOpenJDK 21 (HotSpot JVM)](https://adoptopenjdk.net/releases.html?variant=openjdk21&jvmVariant=hotspot) or newer.
 * Install eMoflon::IBeX as described [here](https://github.com/eMoflon/emoflon-ibex#how-to-develop).
 * Install at least one of the supported (M)ILP solvers:
-    * Install [Gurobi](https://www.gurobi.com/) in version `12.0.2` and activate a license for your computer.
+    * Install [Gurobi](https://www.gurobi.com/) in version `13.0.1` and activate a license for your computer.
         * Currently, Gurobi is the default (M)ILP solver used in GIPS because of the great performance.
     * Install [GLPK](https://www.gnu.org/software/glpk/) in the newest version (`4.6.5`) and add it to your path.
         * GLPK is an open-source (M)ILP solver that can be used without a charge.
@@ -17,7 +17,7 @@
             * Extract the archive, e.g., to `C:\Program Files\GLPK\glpk-4.65`.
             * Add `C:\Program Files\GLPK\glpk-4.65\w64` to the system-wide environment variable `path`.
             * Restart your Eclipse IDE.
-    * Install [CPLEX](https://www.ibm.com/analytics/cplex-optimizer) in version `22.1.2` and activate a license for your computer (if neccessary).
+    * Install [CPLEX](https://www.ibm.com/analytics/cplex-optimizer) in version `22.1.2` and activate a license for your computer (if necessary).
         * CPLEX is a commercial alternative to the other (M)ILP solvers implemented in GIPS.
 * Clone this Git repository to your local machine and import it into your Eclipse development workspace: *File -> Import -> General -> Existing Projects into Workspace*. Import all projects. You can use your eMoflon::IBeX development workspace for this, i.e., there is no need to start a runtime workspace for the GIPS development projects.
     * As an alternative, you can use this [PSF file](https://raw.githubusercontent.com/Echtzeitsysteme/gips/master/devProjectSet.psf) for the import.
@@ -53,11 +53,11 @@ By using this settings, you should be unable to commit unformatted code.
 * Install [AdoptOpenJDK 21 (HotSpot JVM)](https://adoptopenjdk.net/releases.html?variant=openjdk21&jvmVariant=hotspot) or newer.
 * Install eMoflon::IBeX as described [here](https://github.com/eMoflon/emoflon-ibex#how-to-develop).
 * Install at least one of the supported (M)ILP solvers:
-    * Install [Gurobi](https://www.gurobi.com/) in version `12.0.2` and activate a license for your computer.
+    * Install [Gurobi](https://www.gurobi.com/) in version `13.0.1` and activate a license for your computer.
         * Currently, Gurobi is the default (M)ILP solver used in GIPS because of the great performance.
     * Install [GLPK](https://www.gnu.org/software/glpk/) in the newest version (`4.6.5`) and add it to your path.
         * GLPK is an open-source (M)ILP solver that can be used without a charge.
-    * Install [CPLEX](https://www.ibm.com/analytics/cplex-optimizer) in version `22.1.2` and activate a license for your computer (if neccessary).
+    * Install [CPLEX](https://www.ibm.com/analytics/cplex-optimizer) in version `22.1.2` and activate a license for your computer (if necessary).
         * CPLEX is a commercial alternative to the other (M)ILP solvers implemented in GIPS.
 * Install GIPS from the public Eclipse update site: https://echtzeitsysteme.github.io/gips-updatesite/snapshot/updatesite/
 * Launch a runtime workspace (while using a runtime Eclipse) as stated in the eMoflon::IBeX installation steps to start using GIPS.
@@ -69,32 +69,42 @@ When using GIPS within the Eclipse IDE, the following environment variables may 
 ```
 # Linux
 GRB_LICENSE_FILE=/home/mkratz/gurobi.lic
-GUROBI_HOME=/opt/gurobi1202/linux64/
-LD_LIBRARY_PATH=/opt/gurobi1202/linux64/lib/:/opt/ibm/ILOG/CPLEX_Studio2212/cplex/bin/x86-64_linux/
-PATH=/opt/gurobi1202/linux64/bin/:/opt/ibm/ILOG/CPLEX_Studio2212/cplex/bin/x86-64_linux/:$PATH
+GUROBI_HOME=/opt/gurobi1301/linux64/
+LD_LIBRARY_PATH=/opt/gurobi1301/linux64/lib/:/opt/ibm/ILOG/CPLEX_Studio2212/cplex/bin/x86-64_linux/
+PATH=/opt/gurobi1301/linux64/bin/:/opt/ibm/ILOG/CPLEX_Studio2212/cplex/bin/x86-64_linux/:$PATH
 
 # macOS
 GRB_LICENSE_FILE=/Users/mkratz/gurobi.lic
-GUROBI_HOME=/Library/gurobi1202/macos_universal2/
-LD_LIBRARY_PATH=/Library/gurobi1202/macos_universal2/lib/:/Applications/CPLEX_Studio2212/cplex/bin/arm64_osx/
-PATH=/Library/gurobi1202/macos_universal2/bin/:/Applications/CPLEX_Studio2212/cplex/bin/arm64_osx/:$PATH
+GUROBI_HOME=/Library/gurobi1301/macos_universal2/
+LD_LIBRARY_PATH=/Library/gurobi1301/macos_universal2/lib/:/Applications/CPLEX_Studio2212/cplex/bin/arm64_osx/
+PATH=/Library/gurobi1301/macos_universal2/bin/:/Applications/CPLEX_Studio2212/cplex/bin/arm64_osx/:$PATH
 
 # Windows
 GRB_LICENSE_FILE=C:\Users\mkratz\gurobi.lic
-GUROBI_HOME=C:\gurobi1202\win64
-LD_LIBRARY_PATH=C:\gurobi1202\win64\lib;C:\Program Files\IBM\ILOG\CPLEX_Studio2212\cplex\bin\x64_win64\
-PATH=C:\gurobi1202\win64\bin;C:\Program Files\IBM\ILOG\CPLEX_Studio2212\cplex\bin\x64_win64\
+GUROBI_HOME=C:\gurobi1301\win64
+LD_LIBRARY_PATH=C:\gurobi1301\win64\lib;C:\Program Files\IBM\ILOG\CPLEX_Studio2212\cplex\bin\x64_win64\
+PATH=C:\gurobi1301\win64\bin;C:\Program Files\IBM\ILOG\CPLEX_Studio2212\cplex\bin\x64_win64\
 ```
 
 
 ## Usage (running simulations)
 
-Please refer to the [GIPS examples reposiory](https://github.com/Echtzeitsysteme/gips-examples).
+Please refer to the [GIPS examples repository](https://github.com/Echtzeitsysteme/gips-examples).
 
 
 ## Tests
 
 Please refer to the [GIPS tests repository](https://github.com/Echtzeitsysteme/gips-tests).
+
+
+## Counting GIPSL lines of code
+
+[gipsl-cloc.txt](./gipsl-cloc.txt) is a language configuration file for [cloc](https://github.com/AlDanial/cloc) which can help to count lines of code (without comments, empty lines, etc.).
+After installing cloc on your system, run the following command to count the lines of a file `Model.gipsl`:
+
+```
+$ cloc --read-lang-def=gipsl-cloc.txt Model.gipsl
+```
 
 
 ## License

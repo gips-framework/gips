@@ -15,6 +15,7 @@ import org.eclipse.core.resources.IWorkspace;
 import org.eclipse.core.resources.ResourcesPlugin;
 import org.eclipse.core.runtime.CoreException;
 import org.eclipse.emf.common.util.URI;
+import org.eclipse.emf.ecore.EClass;
 import org.eclipse.emf.ecore.EObject;
 import org.eclipse.emf.ecore.EStructuralFeature;
 import org.eclipse.emf.ecore.resource.Resource;
@@ -22,11 +23,14 @@ import org.eclipse.xtext.EcoreUtil2;
 import org.eclipse.xtext.resource.XtextResourceSet;
 import org.eclipse.xtext.validation.Check;
 import org.emoflon.gips.gipsl.gipsl.EditorGTFile;
+import org.emoflon.gips.gipsl.gipsl.GipsAttributeExpression;
 import org.emoflon.gips.gipsl.gipsl.GipsBooleanDisjunction;
 import org.emoflon.gips.gipsl.gipsl.GipsBooleanImplication;
 import org.emoflon.gips.gipsl.gipsl.GipsConfig;
 import org.emoflon.gips.gipsl.gipsl.GipsConstant;
 import org.emoflon.gips.gipsl.gipsl.GipsConstraint;
+import org.emoflon.gips.gipsl.gipsl.GipsJoinAllOperation;
+import org.emoflon.gips.gipsl.gipsl.GipsJoinBySelectionOperation;
 import org.emoflon.gips.gipsl.gipsl.GipsLinearFunction;
 import org.emoflon.gips.gipsl.gipsl.GipsMapping;
 import org.emoflon.gips.gipsl.gipsl.GipsMappingVariable;
@@ -34,10 +38,14 @@ import org.emoflon.gips.gipsl.gipsl.GipsObjective;
 import org.emoflon.gips.gipsl.gipsl.GipsReduceOperation;
 import org.emoflon.gips.gipsl.gipsl.GipsRelationalExpression;
 import org.emoflon.gips.gipsl.gipsl.GipsSetExpression;
+import org.emoflon.gips.gipsl.gipsl.GipsTypeExpression;
+import org.emoflon.gips.gipsl.gipsl.GipsTypeExtension;
+import org.emoflon.gips.gipsl.gipsl.GipsTypeExtensionVariable;
+import org.emoflon.gips.gipsl.gipsl.GipsTypeSelect;
+import org.emoflon.gips.gipsl.gipsl.GipsVariableReferenceExpression;
 import org.emoflon.gips.gipsl.gipsl.GipslPackage;
 import org.emoflon.gips.gipsl.gipsl.ImportedPattern;
 import org.emoflon.gips.gipsl.gipsl.Package;
-import org.emoflon.gips.gipsl.gipsl.SolverType;
 import org.emoflon.gips.gipsl.gipsl.impl.EditorGTFileImpl;
 import org.emoflon.gips.gipsl.gipsl.impl.GipsConstantImpl;
 import org.emoflon.gips.gipsl.gipsl.impl.GipsConstraintImpl;
@@ -56,8 +64,7 @@ import org.emoflon.ibex.gt.editor.utils.GTEditorPatternUtils;
  */
 public class GipslValidator extends AbstractGipslValidator {
 
-	public static String PATTERN_NAME_MULTIPLE_DECLARATIONS_MESSAGE = "Pattern, Rule, Mapping or Type  '%s' must not be declared %s.";
-
+	public static String PATTERN_NAME_MULTIPLE_DECLARATIONS_MESSAGE = "Pattern, Rule, Mapping or Type  '%s' must not be declared %s. (case insensitive)";
 	/**
 	 * Global switch to turn off the whole validation.
 	 */
@@ -98,15 +105,15 @@ public class GipslValidator extends AbstractGipslValidator {
 	@Override
 	public void checkPatternNameUnique(EditorPattern pattern) {
 		long count = GipslScopeContextUtil.getAllEditorPatterns(pattern).stream()
-				.filter(p -> p != null && p.getName() != null).filter(p -> p.getName().equals(pattern.getName()))
-				.count();
+				.filter(p -> p != null && p.getName() != null)
+				.filter(p -> p.getName().toLowerCase().equals(pattern.getName().toLowerCase())).count();
 
 		count += GipslScopeContextUtil.getClasses(pattern).stream()
-				.filter(cls -> cls.getName().equals(pattern.getName())).count();
+				.filter(cls -> cls.getName().toLowerCase().equals(pattern.getName().toLowerCase())).count();
 
 		EditorGTFile editorFile = GTEditorPatternUtils.getContainer(pattern, EditorGTFileImpl.class);
 		count += editorFile.getMappings().stream().filter(m -> m != null && m.getName() != null)
-				.filter(m -> m.getName().equals(pattern.getName())).count();
+				.filter(m -> m.getName().toLowerCase().equals(pattern.getName().toLowerCase())).count();
 
 		if (count != 1) {
 			error(String.format(PATTERN_NAME_MULTIPLE_DECLARATIONS_MESSAGE, pattern.getName(),
@@ -197,8 +204,8 @@ public class GipslValidator extends AbstractGipslValidator {
 					continue;
 
 				if (gtModel instanceof EditorGTFile gipsEditorFile) {
-					if (gipsEditorFile.getPackage().getName().equals(pkg.getName())) {
-						error("Package name must be unique within the current workspace. Package name clash with: "
+					if (gipsEditorFile.getPackage().getName().toLowerCase().equals(pkg.getName().toLowerCase())) {
+						error("Package name must be unique within the current workspace (case insensitive). Package name clash with: "
 								+ gtModelUri, GipslPackage.Literals.PACKAGE__NAME);
 					}
 				}
@@ -347,70 +354,17 @@ public class GipslValidator extends AbstractGipslValidator {
 
 	@Check
 	public void validateConfig(final GipsConfig config) {
-		if (GipslValidator.DISABLE_VALIDATOR) {
-			return;
-		}
+		GipslConfigValidator.validateConfig(config);
+	}
 
-		if (config == null) {
-			return;
-		}
+	@Check
+	public void checkVariableReference(final GipsVariableReferenceExpression reference) {
+		GipslVariableReferenceValidator.checkVariableReference(reference);
+	}
 
-		// Check all contents for presence
-		if (config.getSolver() == null) {
-			error("You have to specify an ILP solver.", GipslPackage.Literals.GIPS_CONFIG__SOLVER);
-		}
-		// ^this might be obsolete
-
-		// If solver is Gurobi and main is set, a home path and a license path must be
-		// specified
-		if (config.getSolver() == SolverType.GUROBI && config.isEnableLaunchConfig()
-				&& (config.getHome() == null || config.getLicense() == null)) {
-			error("You have to specify a home folder and a license file to generate a launch config for Gurobi.",
-					GipslPackage.Literals.GIPS_CONFIG__SOLVER);
-		}
-
-		// ILP solver's home folder must not be empty (if set)
-		if (config.getHome() != null && (config.getHome().isBlank() || config.getHome().equals("\"\""))) {
-			error("Home folder path must not be blank if set.", GipslPackage.Literals.GIPS_CONFIG__HOME);
-		}
-
-		// ILP solver's license path must not be empty (if set)
-		if (config.getLicense() != null && (config.getLicense().isBlank() || config.getLicense().equals("\"\""))) {
-			error("License file path must not be blank if set.", GipslPackage.Literals.GIPS_CONFIG__LICENSE);
-		}
-
-		// Main path must not be empty (if enabled)
-		if (config.isEnableLaunchConfig() && config.getMainLoc() != null
-				&& (config.getMainLoc().isBlank() || config.getMainLoc().equals("\"\""))) {
-			error("Launch config path must not be blank if enabled.", GipslPackage.Literals.GIPS_CONFIG__MAIN_LOC);
-		}
-
-		// Time limit
-		if (config.getTimeLimit() < 0) {
-			error("Time limit must be >= 0.0", GipslPackage.Literals.GIPS_CONFIG__TIME_LIMIT);
-		}
-
-		// Random seed
-		if (config.getRndSeed() < 0) {
-			error("Random seed must be >= 0.", GipslPackage.Literals.GIPS_CONFIG__RND_SEED);
-		} else if (config.getRndSeed() > Integer.MAX_VALUE) {
-			error("Random seed must be <= Integer.MAX_VALUE.", GipslPackage.Literals.GIPS_CONFIG__RND_SEED);
-		}
-
-		// Tolerance
-		if (config.isEnableTolerance() && config.getTolerance() < 1e-9) {
-			error("Tolerance value must be >= 1e-9", GipslPackage.Literals.GIPS_CONFIG__TOLERANCE);
-		} else if (config.isEnableTolerance() && config.getTolerance() > 1e-2) {
-			error("Tolerance value must be <= 1e-2", GipslPackage.Literals.GIPS_CONFIG__TOLERANCE);
-		}
-
-		// Special case: If solver is GLPK and pre-solving is disabled, generate a
-		// warning
-		if (config.getSolver() == SolverType.GLPK && !config.isEnablePresolve()) {
-			warn("GLPK needs enabled pre-solving for some problems. "
-					+ "It is highly reccommend to enable pre-solving if using the GLPK solver in GIPS.",
-					GipslPackage.Literals.GIPS_CONFIG__ENABLE_PRESOLVE);
-		}
+	@Check
+	public void checkAttributeExpression(final GipsAttributeExpression expression) {
+		GipslAttributeValidator.checkAttributeExpression(expression);
 	}
 
 	@Check
@@ -427,7 +381,17 @@ public class GipslValidator extends AbstractGipslValidator {
 			return;
 		}
 		GipslMappingValidator.checkMappingVariableNameUnique(variable);
+		GipslMappingValidator.checkMappingVariableInUse(variable);
+	}
 
+	@Check
+	public void checkTypeExtension(final GipsTypeExtension typeExtension) {
+		GipslTypeExtensionValidator.checkTypeExtension(typeExtension);
+	}
+
+	@Check
+	public void checkTypeExtensionVariable(final GipsTypeExtensionVariable variable) {
+		GipslTypeExtensionValidator.checkTypeExtensionVariable(variable);
 	}
 
 	@Check
@@ -504,6 +468,70 @@ public class GipslValidator extends AbstractGipslValidator {
 					expression, //
 					GipslPackage.Literals.GIPS_SET_EXPRESSION__RIGHT //
 			);
+	}
+
+	@Check
+	public void checkTypeSelect(final GipsTypeSelect typeSelect) {
+		if (GipslValidator.DISABLE_VALIDATOR)
+			return;
+
+		if (typeSelect.eContainer() == null || typeSelect.eContainer().eContainer() == null)
+			return;
+
+		if (typeSelect.getType() == null)
+			return;
+
+		EObject setContext = GipslScopeContextUtil.getSetContext(typeSelect.eContainer().eContainer());
+
+		// preprocessing
+		if (setContext instanceof GipsAttributeExpression attributeExpression) {
+			if (attributeExpression.getAttribute() != null && attributeExpression.getAttribute().getLiteral() != null) {
+				EClass attributeType = (EClass) attributeExpression.getAttribute().getLiteral().getEType();
+				if (attributeType != null)
+					setContext = attributeType;
+			}
+		}
+
+		// type select can only be done on types!
+		if (setContext instanceof EClass eClass) {
+			if (typeSelect.getType().equals(eClass)) {
+				GipslValidator.warn( //
+						String.format(GipslValidatorUtil.TYPE_SELECTION_SAME_TYPE, typeSelect.getType().getName()), //
+						typeSelect, //
+						GipslPackage.Literals.GIPS_TYPE_SELECT__TYPE //
+				);
+			} else if (((EClass) typeSelect.getType()).isSuperTypeOf(eClass)) {
+				GipslValidator.warn( //
+						String.format(GipslValidatorUtil.TYPE_SELECTION_IS_SUPERTYPE, typeSelect.getType().getName(),
+								eClass.getName()), //
+						typeSelect, //
+						GipslPackage.Literals.GIPS_TYPE_SELECT__TYPE //
+				);
+			} else if (!eClass.isSuperTypeOf(((EClass) typeSelect.getType()))) {
+				GipslValidator.warn( //
+						String.format(GipslValidatorUtil.TYPE_SELECTION_UNRELATED_TYPE, eClass.getName(),
+								typeSelect.getType().getName()), //
+						typeSelect, //
+						GipslPackage.Literals.GIPS_TYPE_SELECT__TYPE //
+				);
+			}
+		} else if (!(setContext instanceof GipsTypeExpression || setContext instanceof GipsAttributeExpression)) {
+			GipslValidator.err( //
+					GipslValidatorUtil.TYPE_SELECTION_INVALID_COLLECTION, //
+					typeSelect, //
+					null //
+			);
+		}
+	}
+
+	@Check
+	public void checkJoinOperation(final GipsJoinBySelectionOperation operation) {
+		GipslJoinValidator.checkJoinOperation(operation);
+	}
+
+	@Check
+	public void checkJoinOperation(final GipsJoinAllOperation operation) {
+		GipslJoinValidator.checkJoinOperation(operation);
 	}
 
 	@Check

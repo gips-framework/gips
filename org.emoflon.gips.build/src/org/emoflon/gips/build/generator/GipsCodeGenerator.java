@@ -4,8 +4,10 @@ import java.util.Collections;
 import java.util.LinkedList;
 import java.util.List;
 
+import org.eclipse.core.runtime.IPath;
+import org.eclipse.emf.common.util.URI;
 import org.emoflon.gips.build.GipsAPIData;
-import org.emoflon.gips.build.generator.templates.GeneratorTemplate;
+import org.emoflon.gips.build.generator.templates.FileGeneratorTemplate;
 import org.emoflon.gips.build.generator.templates.GipsAPITemplate;
 import org.emoflon.gips.build.generator.templates.LaunchFileTemplate;
 import org.emoflon.gips.build.generator.templates.MapperFactoryTemplate;
@@ -14,6 +16,9 @@ import org.emoflon.gips.build.generator.templates.PatternMapperTemplate;
 import org.emoflon.gips.build.generator.templates.PatternMappingTemplate;
 import org.emoflon.gips.build.generator.templates.RuleMapperTemplate;
 import org.emoflon.gips.build.generator.templates.RuleMappingTemplate;
+import org.emoflon.gips.build.generator.templates.TypeExtenderFactoryTemplate;
+import org.emoflon.gips.build.generator.templates.TypeExtenderTemplate;
+import org.emoflon.gips.build.generator.templates.TypeExtensionTemplate;
 import org.emoflon.gips.build.generator.templates.constraint.ConstraintFactoryTemplate;
 import org.emoflon.gips.build.generator.templates.constraint.GlobalConstraintTemplate;
 import org.emoflon.gips.build.generator.templates.constraint.MappingConstraintTemplate;
@@ -25,6 +30,13 @@ import org.emoflon.gips.build.generator.templates.function.MappingFunctionTempla
 import org.emoflon.gips.build.generator.templates.function.PatternFunctionTemplate;
 import org.emoflon.gips.build.generator.templates.function.RuleFunctionTemplate;
 import org.emoflon.gips.build.generator.templates.function.TypeFunctionTemplate;
+import org.emoflon.gips.eclipse.api.ITraceContext;
+import org.emoflon.gips.eclipse.api.ITraceManager;
+import org.emoflon.gips.eclipse.trace.TraceMap;
+import org.emoflon.gips.eclipse.trace.TraceModelLink;
+import org.emoflon.gips.eclipse.trace.resolver.ResolveEcore2Id;
+import org.emoflon.gips.eclipse.trace.resolver.ResolveIdentity2Id;
+import org.emoflon.gips.eclipse.utility.HelperEclipse;
 import org.emoflon.gips.intermediate.GipsIntermediate.GipsIntermediateModel;
 import org.emoflon.gips.intermediate.GipsIntermediate.MappingConstraint;
 import org.emoflon.gips.intermediate.GipsIntermediate.MappingFunction;
@@ -40,7 +52,7 @@ import org.emoflon.gips.intermediate.GipsIntermediate.TypeFunction;
 public class GipsCodeGenerator {
 
 	final protected TemplateData data;
-	protected List<GeneratorTemplate<?>> templates = Collections.synchronizedList(new LinkedList<>());
+	protected List<FileGeneratorTemplate<?>> templates = Collections.synchronizedList(new LinkedList<>());
 
 	public GipsCodeGenerator(final GipsIntermediateModel model, final GipsAPIData apiData,
 			final GipsImportManager classToPackage) {
@@ -52,6 +64,7 @@ public class GipsCodeGenerator {
 		templates.add(new MapperFactoryTemplate(data, data.model));
 		templates.add(new ConstraintFactoryTemplate(data, data.model));
 		templates.add(new FunctionFactoryTemplate(data, data.model));
+		templates.add(new TypeExtenderFactoryTemplate(data, data.model));
 		data.model.getMappings().parallelStream().forEach(mapping -> {
 			if (mapping instanceof RuleMapping gtMapping) {
 				templates.add(new RuleMappingTemplate(data, gtMapping));
@@ -62,6 +75,10 @@ public class GipsCodeGenerator {
 				templates.add(new PatternMapperTemplate(data, pmMapping));
 			}
 
+		});
+		data.model.getExtendedTypes().parallelStream().forEach(typeExtension -> {
+			templates.add(new TypeExtensionTemplate(data, typeExtension));
+			templates.add(new TypeExtenderTemplate(data, typeExtension));
 		});
 		data.model.getConstraints().parallelStream().forEach(constraint -> {
 			if (constraint instanceof MappingConstraint mappingConstraint) {
@@ -101,7 +118,7 @@ public class GipsCodeGenerator {
 			}
 		});
 		if (data.model.getConfig().isBuildLaunchConfig()) {
-			GeneratorTemplate<?> launchTemplate = new LaunchFileTemplate(data, data.model);
+			FileGeneratorTemplate<?> launchTemplate = new LaunchFileTemplate(data, data.model);
 			try {
 				launchTemplate.init();
 				launchTemplate.generate();
@@ -109,7 +126,19 @@ public class GipsCodeGenerator {
 			} catch (Exception e) {
 				e.printStackTrace();
 			}
+		}
 
+		if (ITraceManager.getInstance().isGIPSLTracingEnabled()) {
+			TraceMap<String, String> intermediate2code = TraceMap.normalize(data.traceMap, ResolveEcore2Id.INSTANCE,
+					ResolveIdentity2Id.INSTANCE);
+
+			URI intermediateURI = HelperEclipse.toPlatformURI(data.apiData.intermediateModelURI);
+			IPath intermediatePath = IPath.fromOSString(intermediateURI.toPlatformString(true)).makeRelative();
+			String intermediateModelId = intermediatePath.toString();
+
+			ITraceContext traceContext = ITraceManager.getInstance().getContext(data.apiData.project.getName());
+
+			traceContext.updateTraceModel(new TraceModelLink(intermediateModelId, "java", intermediate2code));
 		}
 	}
 }
